@@ -90,7 +90,7 @@ export function PublicFPHub({ lang = "en" }) {
         if (!data || !data.ok) { setListError(true); return; }
         setEvents(data.events || []);
         var map = {};
-        (data.fpStatus || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked, createdBy: r.created_by || null, chefAckBy: r.chef_ack_by || null }; });
+        (data.fpStatus || []).forEach(function(r){ map[r.event_id] = { sentToKitchen: !!r.sent_to_kitchen, createdBy: r.created_by || null, chefAckBy: r.chef_ack_by || null }; });
         setFpMap(map);
       })
       .catch(function(e){ console.error('[PublicFPHub] list failed:', e); setListError(true); });
@@ -99,11 +99,15 @@ export function PublicFPHub({ lang = "en" }) {
   function prevMo(){ setCalMo(function(m){ if (m === 0) { setCalYr(function(y){ return y - 1; }); return 11; } return m - 1; }); }
   function nextMo(){ setCalMo(function(m){ if (m === 11) { setCalYr(function(y){ return y + 1; }); return 0; } return m + 1; }); }
 
+  // "Ready" here means sales has actually marked the FP Final and sent it
+  // to kitchen -- a merely-locked (frozen-for-editing-but-not-dispatched)
+  // or never-locked draft reads as "not ready yet", same as no row at all,
+  // and (enforced server-side in public-fp-view, not just here) can't be
+  // opened over this unauthenticated link either.
   function fpStatusFor(ev) {
     var row = fpMap[ev.id];
-    if (!row) return { key: 'none', label: T2('Not ready yet'), createdBy: null, chefAckBy: null };
-    if (row.locked) return { key: 'locked', label: T2('FP Ready'), createdBy: row.createdBy, chefAckBy: row.chefAckBy };
-    return { key: 'made', label: T2('FP Draft'), createdBy: row.createdBy, chefAckBy: row.chefAckBy };
+    if (row && row.sentToKitchen) return { key: 'ready', label: T2('FP Ready'), createdBy: row.createdBy, chefAckBy: row.chefAckBy };
+    return { key: 'none', label: T2('Not ready yet'), createdBy: null, chefAckBy: null };
   }
 
   // ── Per-event detail payload (fp/items/configs/salesMeta/sections), fetched
@@ -358,9 +362,8 @@ export function PublicFPHub({ lang = "en" }) {
 
               {dayEvs.map(function(ev){
                 var fpSt = fpStatusFor(ev);
-                var clickable = fpSt.key === 'made' || fpSt.key === 'locked';
-                var badgeTone = fpSt.key === 'locked' ? { bg: K.okBg, fg: K.ok, border: K.okBorder }
-                  : fpSt.key === 'made' ? { bg: K.warnBg, fg: K.warn, border: K.warnBorder }
+                var clickable = fpSt.key === 'ready';
+                var badgeTone = fpSt.key === 'ready' ? { bg: K.okBg, fg: K.ok, border: K.okBorder }
                   : { bg: "#FFFFFF", fg: K.textFaint, border: K.cardWarmLine };
                 return (
                   <div key={ev.id} style={{ position: "relative", marginBottom: 12 }}>

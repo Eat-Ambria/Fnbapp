@@ -105,13 +105,17 @@ function projectLmsRaw(raw: any): any {
 }
 
 // Exactly the fp.* fields FunctionPlanPrintView.jsx actually reads, plus
-// `locked`/`event_id`. guest_signature/guest_signature_name and created_by
+// `locked`/`sent_to_kitchen`/`event_id` -- sent_to_kitchen is the real
+// access gate below (locked alone just means "frozen for editing", not
+// "sales marked this Final and dispatched it to kitchen"; a merely-locked
+// draft must not be viewable over this unauthenticated link, same as a
+// never-locked one). guest_signature/guest_signature_name and created_by
 // are included per explicit instruction (2026-11-11). Still deliberately
 // excludes fp_history/lock_history (staff names and internal unlock
 // reasons) and sent_to_kitchen_by — none of which the print shows, all of
 // which a `select('*')` would otherwise hand to anyone with the link.
 const FP_SAFE_COLUMNS = [
-  "event_id", "locked", "created_by", "chef_ack_by", "chef_ack_at",
+  "event_id", "locked", "sent_to_kitchen", "created_by", "chef_ack_by", "chef_ack_at",
   "after_party_enabled", "after_party_pax", "after_party_start_time", "after_party_windup_time",
   "corkage_details", "corkage_liquor", "corkage_price",
   "drivers_food_count", "drivers_food_foc", "drivers_food_required", "drivers_food_total_override",
@@ -146,7 +150,7 @@ Deno.serve(async (req) => {
     if (body.action === "list") {
       const [evRows, fpRows] = await Promise.all([
         fetchAllRows(() => sb.from("events").select(EVENT_LIST_COLUMNS).or("is_deleted.is.null,is_deleted.eq.false")),
-        fetchAllRows(() => sb.from("event_function_plans").select("event_id, locked, created_by, chef_ack_by, chef_ack_at")),
+        fetchAllRows(() => sb.from("event_function_plans").select("event_id, locked, sent_to_kitchen, created_by, chef_ack_by, chef_ack_at")),
       ]);
       const events = evRows.filter((e) => !isHiddenSmallRestroBooking(e));
       return json({ ok: true, events, fpStatus: fpRows });
@@ -156,12 +160,15 @@ Deno.serve(async (req) => {
       const eventId = String(body.event_id || "").trim();
       if (!eventId) return json({ ok: false, reason: "invalid_request" });
 
-      // A Function Plan row must already exist (made or locked) — matches
-      // PublicFPHub's own "clickable" gate client-side, enforced here too
-      // since this is the actual access boundary now, not just UI polish.
+      // Only a Function Plan sales has actually marked Final and sent to
+      // kitchen is viewable here -- matches PublicFPHub's own "clickable"
+      // gate client-side, enforced here too since this is the actual access
+      // boundary now, not just UI polish. A merely-locked (frozen-but-not-
+      // dispatched) or never-locked draft must read as "not ready yet",
+      // same as no row at all.
       const fpRes = await sb.from("event_function_plans").select(FP_SAFE_COLUMNS).eq("event_id", eventId).maybeSingle();
       if (fpRes.error) return json({ ok: false, reason: fpRes.error.message });
-      if (!fpRes.data) return json({ ok: false, reason: "not_found" });
+      if (!fpRes.data || !fpRes.data.sent_to_kitchen) return json({ ok: false, reason: "not_found" });
 
       const evRes = await sb.from("events").select(EVENT_DETAIL_COLUMNS + ", is_deleted").eq("id", eventId).maybeSingle();
       if (evRes.error) return json({ ok: false, reason: evRes.error.message });
