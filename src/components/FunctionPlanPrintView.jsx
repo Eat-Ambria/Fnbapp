@@ -184,8 +184,11 @@ function SubHead({ children, tight }) {
   // runs out of room.
   // `tight` -- the F&B/Banquet Info column's grouped headings (Food
   // Preference, Timings, ...) sat too far from their own first line; the
-  // Customized Menu column's dept headings keep the roomier default.
-  return <div style={{ fontSize: 10.5, fontWeight: 700, marginTop: tight ? 8 : 10, marginBottom: tight ? 1 : 4, breakAfter: "avoid" }}>{children}</div>;
+  // Customized Menu column's dept headings keep the roomier default. The
+  // gap to the PREVIOUS group's last line (marginTop) isn't part of that --
+  // it got widened back out separately after the two shrank together made
+  // one section run straight into the next (e.g. "Community" into "Timings").
+  return <div style={{ fontSize: 10.5, fontWeight: 700, marginTop: 10, marginBottom: tight ? 1 : 4, breakAfter: "avoid" }}>{children}</div>;
 }
 
 // A catalogue section's name (Dish Library > Sections tab), printed as a
@@ -482,7 +485,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
             long lists below them are free to split, the columns can run side
             by side and continue in the same left/right position on
             subsequent pages like a normal two-column print layout. */}
-        <div className="fp-print-cols" style={{ display: "grid", gridTemplateColumns: "3fr 2fr", border: "2px solid #000", borderTop: "none" }}>
+        <div className="fp-print-cols" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", border: "2px solid #000", borderTop: "none" }}>
           <div className="fp-print-col-left" style={{ padding: "14px 16px", borderRight: "2px solid #000" }}>
             <ColTitle>{T2("Customized Menu")} :</ColTitle>
             {packageName ? (
