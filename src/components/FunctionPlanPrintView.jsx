@@ -455,9 +455,9 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
           </FRow>
           <FRow>
             <FCell value={event.guest || ''} label="GUEST NAME" />
-            <FCell value={addressValue} label="ADDRESS" />
-            {subVenue && <FCell value={subVenue} label="SUB-VENUE" size={7} />}
-            <FCell value={(event.lms_raw && event.lms_raw.fisc_client_mobile) || ''} label="CONTACT NO." last />
+            <FCell value={(event.lms_raw && event.lms_raw.fisc_client_mobile) || ''} label="CONTACT NO." />
+            <FCell value={addressValue} label="ADDRESS" last={!subVenue} />
+            {subVenue && <FCell value={subVenue} label="SUB-VENUE" size={7} last />}
           </FRow>
           <FRow thick>
             <FCell value={packageName || ''} label="PACKAGE" large size={8} />
@@ -535,7 +535,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                         {(diff.newSections || []).map(function(sec){
                           return (
                             <div key={sec.name}>
-                              <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2("New section")}: {sec.name})</span></SubHead>
+                              <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2("New")} {sec.name})</span></SubHead>
                               {sortedByVeg(sec.dishes, dishSectionOrder).map(function(n){ return <Bullet key={'n' + n} dot={false}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
                             </div>
                           );
@@ -595,28 +595,28 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                 return (
                   <div key={gi}>
                     <SubHead>{T2(g.heading)}</SubHead>
-                    {g.items.map(function(b, i){ return <Bullet key={i}>{b}</Bullet>; })}
+                    {g.items.map(function(b, i){ return <Bullet key={i} dot={false}>{b}</Bullet>; })}
                   </div>
                 );
               })
             )}
-          </div>
-        </div>
-
-        {/* ── Layout information — stage/mandap placement, entry & exit, seating
-            plan, decor zones, parking. Free text, can run long (the Notes tab
-            gives it a 6-row box), so it gets its own full-width section rather
-            than being squeezed into a one-line bullet. ── */}
-        {fp && ((fp.layout_info && fp.layout_info.trim()) || fp.layout_image_url) && (
-          <div style={{ border: "2px solid #000", borderTop: "none", padding: "12px 16px" }}>
-            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".5px", color: "#555", marginBottom: 6 }}>{T2("LAYOUT INFORMATION")}</div>
-            {fp.layout_info && fp.layout_info.trim() && <div style={{ fontSize: 10.5, whiteSpace: "pre-wrap" }}>{fp.layout_info}</div>}
-            {fp.layout_image_url && (
-              <img src={fp.layout_image_url} alt={T2("Layout reference")}
-                style={{ display: "block", marginTop: fp.layout_info ? 8 : 0, maxWidth: "100%", maxHeight: 260, objectFit: "contain" }} />
+            {/* ── Layout information — stage/mandap placement, entry & exit,
+                seating plan, decor zones, parking. Moved in next to the rest
+                of the F&B/banquet info instead of its own full-width block
+                at the very bottom, where it used to read as an afterthought
+                disconnected from everything else about the function. ── */}
+            {fp && ((fp.layout_info && fp.layout_info.trim()) || fp.layout_image_url) && (
+              <div>
+                <SubHead>{T2("Layout Information")}</SubHead>
+                {fp.layout_info && fp.layout_info.trim() && <Bullet dot={false}><span style={{ whiteSpace: "pre-wrap" }}>{fp.layout_info}</span></Bullet>}
+                {fp.layout_image_url && (
+                  <img src={fp.layout_image_url} alt={T2("Layout reference")}
+                    style={{ display: "block", marginTop: 6, maxWidth: "100%", maxHeight: 260, objectFit: "contain" }} />
+                )}
+              </div>
             )}
           </div>
-        )}
+        </div>
 
         {/* ── Guest signature, when captured — FunctionPlanTab.jsx's own
             closing-confirmation block, never shown on the print before. ── */}
