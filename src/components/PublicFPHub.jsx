@@ -28,7 +28,7 @@ import { supabase } from '../lib/supabase.js';
 import { safeArr, TODAY, TOMORROW, localDateStr } from '../utils/helpers.js';
 import { EventMenuBuilderView } from './EventMenuBuilderView.jsx';
 import { buildDishMasterMap, buildDeptConfigs } from '../lib/dbConfig.js';
-import { hydrateMenuPackages } from '../data/menuPackages.js';
+import { hydrateMenuPackages, hydrateMenuPackageSections } from '../data/menuPackages.js';
 import { hydrateRecipeData } from '../data/recipeData.js';
 import { hydrateSalesConfigs } from '../data/salesConfig.js';
 
@@ -127,7 +127,15 @@ export function PublicFPHub({ lang = "en" }) {
         // no-login viewer, and the print silently shows wrong department
         // grouping, wrong "added beyond template" marks, wrong veg/non-veg,
         // and no Service/Crockery/Transport config bullets at all.
-        if (data.menuPackage) hydrateMenuPackages({ [data.menuPackage.name]: data.menuPackage.dishes }, {}, {});
+        if (data.menuPackage) {
+          hydrateMenuPackages({ [data.menuPackage.name]: data.menuPackage.dishes }, {}, {});
+          // Without this, a dish tagged (via menu_section_overrides) into one of
+          // THIS package's own custom sections -- not a raw dish_catalogue_sections
+          // id -- can never resolve and silently lands in "Extras" instead of the
+          // section it was actually tagged to (EventMenuBuilderView's
+          // effectiveSectionIdByDish resolves through MENU_PACKAGE_SECTIONS).
+          if (data.menuPackage.sections) hydrateMenuPackageSections({ [data.menuPackage.name]: data.menuPackage.sections });
+        }
         hydrateRecipeData({ dishMaster: buildDishMasterMap(data.dishMaster) });
         hydrateSalesConfigs(buildDeptConfigs(data.salesConfigDefs, data.salesConfigOptions));
         setDetail(data);

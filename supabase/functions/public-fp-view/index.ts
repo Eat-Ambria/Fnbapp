@@ -187,20 +187,31 @@ Deno.serve(async (req) => {
       if (optsRes.error) return json({ ok: false, reason: optsRes.error.message });
 
       // The matching menu_packages row (by name, same punctuation/case-
-      // insensitive match the client uses elsewhere) — only its flat dish
-      // list, for the print's "added beyond the package template" diff and
-      // department grouping. Not found is not an error: an event can
-      // legitimately have no resolvable package (free text, LMS mismatch).
-      let menuPackage: { name: string; dishes: string[] } | null = null;
+      // insensitive match the client uses elsewhere) — its flat dish list
+      // for the print's "added beyond the package template" diff and
+      // department grouping, AND its `sections` overlay (package-specific
+      // section definitions, hydrated client-side into MENU_PACKAGE_SECTIONS
+      // by PublicFPHub.jsx) -- without it, a dish whose menu_section_overrides
+      // tag points at one of THIS package's own section ids (rather than a
+      // raw dish_catalogue_sections id) can never resolve, and silently
+      // lands in "Extras" instead of the section it was actually tagged to.
+      // Not found is not an error: an event can legitimately have no
+      // resolvable package (free text, LMS mismatch).
+      let menuPackage: { name: string; dishes: string[]; sections: any } | null = null;
       const rawPkgName = event.menu_package;
       if (rawPkgName) {
-        const pkgRows = await fetchAllRows(() => sb.from("menu_packages").select("name, dishes").eq("is_active", true));
+        const pkgRows = await fetchAllRows(() => sb.from("menu_packages").select("name, dishes, sections").eq("is_active", true));
         const wanted = normalizePkgName(rawPkgName);
         const match = pkgRows.find((r: any) => r.name === rawPkgName) ||
           pkgRows.find((r: any) => normalizePkgName(r.name) === wanted);
         if (match) {
           const dishes = typeof match.dishes === "string" ? JSON.parse(match.dishes || "[]") : (match.dishes || []);
-          menuPackage = { name: match.name, dishes };
+          let sections: any = null;
+          if (match.sections != null) {
+            try { sections = typeof match.sections === "string" ? JSON.parse(match.sections) : match.sections; }
+            catch (_e) { sections = null; }
+          }
+          menuPackage = { name: match.name, dishes, sections };
         }
       }
 

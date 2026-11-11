@@ -391,9 +391,6 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
         <div style={{ textAlign: "center", marginBottom: 18 }}>
           <div style={{ fontSize: 22, fontWeight: 700 }}>Ambria Cuisines</div>
           <div style={{ fontSize: 12, color: "#555" }}>{T2("Function Plan")}</div>
-          {fp && fp.created_by && (
-            <div style={{ fontSize: 10.5, color: "#777", marginTop: 2 }}>{T2("Prepared by")}: {fp.created_by}</div>
-          )}
           {fp && fp.locked && (
             <div style={{ display: "inline-block", marginTop: 6, padding: "3px 10px", borderRadius: 4, border: "1px solid #1C7A3D", color: "#1C7A3D", fontSize: 10.5, fontWeight: 700, letterSpacing: ".5px" }}>
               🔒 {T2("FINAL — SENT TO KITCHEN")}
