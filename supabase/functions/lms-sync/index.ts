@@ -55,6 +55,36 @@ function addDays(d: Date, n: number): Date {
   return r;
 }
 
+const LMS_MONTH_MAP: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+// LMS's function-date fields (fiscd_function_date / chcd_date) don't come back
+// as clean "YYYY-MM-DD" — seen both as a SQL-style "YYYY-MM-DD HH:mm:ss"
+// datetime and as "17-Oct-2025". events.date was being stored exactly as LMS
+// sent it, which the Dashboard's safeEvs filter (requires a 10-char ISO
+// string) silently drops while BookedFunctionsView's own looser date parser
+// still shows them — the same events "missing" on the Dashboard but present
+// in Booked Functions. Normalize to YYYY-MM-DD here so every consumer gets
+// the same canonical shape; "" (same as empty input) makes the caller skip
+// the row, same as before this existed.
+function normalizeLmsDate(raw: string): string {
+  if (!raw) return "";
+  const s = raw.trim();
+  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = /^(\d{1,2})-([A-Za-z]{3,})-(\d{4})$/.exec(s);
+  if (m) {
+    const mi = LMS_MONTH_MAP[m[2].slice(0, 3).toLowerCase()];
+    if (mi != null) return fmtDate(new Date(+m[3], mi, +m[1]));
+  }
+  m = /^(\d{1,2})[\/](\d{1,2})[\/](\d{4})$/.exec(s);
+  if (m) return fmtDate(new Date(+m[3], +m[2] - 1, +m[1]));
+  const t = Date.parse(s);
+  if (!isNaN(t)) return fmtDate(new Date(t));
+  return "";
+}
+
 // ── LMS API caller ──
 async function lmsPost(endpoint: string, body: Record<string, string>): Promise<any> {
   const url = `${LMS_BASE}${endpoint}`;
@@ -191,7 +221,7 @@ function transformVenueContract(row: any, masters: any): any[] {
   if (cancelled) return [];
 
   // The API flattens header + detail into one row per function date
-  const funcDate = row.fiscd_function_date || "";
+  const funcDate = normalizeLmsDate(row.fiscd_function_date || "");
   if (!funcDate) return []; // skip placeholder entries
 
   const venueName = row.venue1 || normalizeVenue(row.fisc_location || "");
@@ -251,7 +281,7 @@ function transformCateringContract(row: any, masters: any): any[] {
 
   if (cancelled) return [];
 
-  const funcDate = row.chcd_date || "";
+  const funcDate = normalizeLmsDate(row.chcd_date || "");
   if (!funcDate) return [];
 
   const isOutdoor = (row.chcd_lead_type || "").toUpperCase() === "O";
