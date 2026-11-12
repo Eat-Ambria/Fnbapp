@@ -200,11 +200,19 @@ function SectionSubHead({ children }) {
   return <div style={{ fontSize: 9, fontWeight: 700, fontStyle: "italic", color: "#555", marginTop: 8, marginBottom: 2, breakAfter: "avoid" }}>{children}</div>;
 }
 
-function Bullet({ children, dot }) {
+// `changed` -- a bright highlighter background, distinct from the existing
+// green/red add-remove text colors, for anything that's different now from
+// what a head chef last acknowledged (FunctionPlanPrintView's ackSnap diff).
+// WebkitPrintColorAdjust/printColorAdjust: "exact" forces it to actually
+// show up printed, same reasoning as the guest-preference highlight.
+var CHANGED_HILITE = { background: "#FFE066", borderRadius: 3, paddingLeft: 4, paddingRight: 4, WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" };
+
+function Bullet({ children, dot, changed }) {
+  var hilite = changed ? CHANGED_HILITE : null;
   if (dot === false) {
-    return <div style={{ fontSize: 10.5, padding: "2px 0" }}>{children}</div>;
+    return <div style={{ fontSize: 10.5, padding: "2px 0", ...hilite }}>{children}</div>;
   }
-  return <div style={{ fontSize: 10.5, padding: "2px 0 2px 14px", position: "relative" }}>
+  return <div style={{ fontSize: 10.5, padding: "2px 0 2px 14px", position: "relative", ...hilite }}>
     <span style={{ position: "absolute", left: 0 }}>•</span>{children}
   </div>;
 }
@@ -214,7 +222,12 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
   function handleAck() {
     if (!onAckChef || acking) return;
     setAcking(true);
-    Promise.resolve(onAckChef()).finally(function(){ setAcking(false); });
+    // fpSnapshotMap/currentDishNames are built further down this same
+    // render, in lockstep with the bullets/menu they describe -- by the
+    // time this actually runs (a click, always after render), they hold
+    // exactly what's on screen right now.
+    var snapshot = { fp: fpSnapshotMap, dishNames: Array.from(currentDishNames) };
+    Promise.resolve(onAckChef(snapshot)).finally(function(){ setAcking(false); });
   }
   // Browsers suggest document.title as the filename for "Print → Save as PDF",
   // so this is the one lever that controls what the chef/sales actually sees
@@ -243,19 +256,52 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
   // group can land between Drivers Food and After Party (the form's own
   // panel order) and still show even before any FP row exists.
   var lmsPlate = getLmsPlateInfo(event);
+
+  // ── Highlight-since-acknowledged: once a head chef has acknowledged this
+  // FP, chef_ack_snapshot is exactly what FunctionPlanPrintView rendered at
+  // that moment -- {fp: {key: diffVal}, dishNames: [...]}. Anything that's
+  // different NOW (a menu dish, an F&B/banquet info line, a timing,
+  // anything printed) gets a bright highlight distinct from the existing
+  // add/remove green/red, so the chef can tell at a glance what changed
+  // since they last looked instead of re-reading the whole sheet. No
+  // snapshot (never acknowledged) means nothing is flagged -- there's no
+  // "since" yet. fpSnapshotMap is built fresh below, in lockstep with the
+  // bullets themselves, and doubles as the payload a fresh Acknowledge saves.
+  var ackSnap = (fp && fp.chef_ack_by && fp.chef_ack_snapshot) ? fp.chef_ack_snapshot : null;
+  var ackSnapFp = (ackSnap && ackSnap.fp) || {};
+  var ackSnapDishes = new Set((ackSnap && ackSnap.dishNames) || []);
+  var currentDishNames = new Set();
+  Object.keys(itemsByDept || {}).forEach(function(d){ (itemsByDept[d] || []).forEach(function(n){ currentDishNames.add(n); }); });
+  function dishChanged(name) {
+    if (!ackSnap) return false;
+    return ackSnapDishes.has(name) !== currentDishNames.has(name);
+  }
+  var fpSnapshotMap = {};
+  function fieldChanged(key, diffVal) {
+    fpSnapshotMap[key] = diffVal;
+    if (!ackSnap) return false;
+    return !(key in ackSnapFp) || ackSnapFp[key] !== diffVal;
+  }
+  function plainItem(key, text) {
+    return { changed: fieldChanged(key, text), node: text };
+  }
+
   if (fp) {
     var foodPrefItems = [];
     // Printers (and PDF export) drop background colors by default unless the
     // browser's own "Background graphics" print option is on — WebkitPrintColorAdjust
     // / printColorAdjust: "exact" forces this highlight to actually show up on
     // the printed page regardless of that checkbox, not just in the on-screen preview.
-    if (fp.guest_preference) foodPrefItems.push(<span>Guest preference — <span style={{ background: "#CFE8FF", padding: "1px 3px", borderRadius: 2, whiteSpace: "pre-wrap", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>{fp.guest_preference}</span></span>);
-    if (fp.spice_tolerance && SPICE_LABELS[fp.spice_tolerance]) foodPrefItems.push('Spice level: ' + SPICE_LABELS[fp.spice_tolerance]);
-    if (fp.sweetness_tolerance && SWEETNESS_LABELS[fp.sweetness_tolerance]) foodPrefItems.push('Sweetness level: ' + SWEETNESS_LABELS[fp.sweetness_tolerance]);
-    if (fp.oil_preference && OIL_LABELS[fp.oil_preference]) foodPrefItems.push('Oil preference: ' + OIL_LABELS[fp.oil_preference]);
-    if (fp.guest_community) foodPrefItems.push('Community: ' + fp.guest_community);
-    if (fp.corkage_price != null) foodPrefItems.push('Corkage: ₹' + fp.corkage_price + (fp.corkage_details ? ' — ' + fp.corkage_details : '') + (fp.corkage_liquor ? ' (liquor being served)' : ''));
-    else if (fp.corkage_liquor) foodPrefItems.push('Liquor being served');
+    if (fp.guest_preference) foodPrefItems.push({
+      changed: fieldChanged('guest_preference', fp.guest_preference),
+      node: <span>Guest preference — <span style={{ background: "#CFE8FF", padding: "1px 3px", borderRadius: 2, whiteSpace: "pre-wrap", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>{fp.guest_preference}</span></span>
+    });
+    if (fp.spice_tolerance && SPICE_LABELS[fp.spice_tolerance]) foodPrefItems.push(plainItem('spice_tolerance', 'Spice level: ' + SPICE_LABELS[fp.spice_tolerance]));
+    if (fp.sweetness_tolerance && SWEETNESS_LABELS[fp.sweetness_tolerance]) foodPrefItems.push(plainItem('sweetness_tolerance', 'Sweetness level: ' + SWEETNESS_LABELS[fp.sweetness_tolerance]));
+    if (fp.oil_preference && OIL_LABELS[fp.oil_preference]) foodPrefItems.push(plainItem('oil_preference', 'Oil preference: ' + OIL_LABELS[fp.oil_preference]));
+    if (fp.guest_community) foodPrefItems.push(plainItem('guest_community', 'Community: ' + fp.guest_community));
+    if (fp.corkage_price != null) foodPrefItems.push(plainItem('corkage', 'Corkage: ₹' + fp.corkage_price + (fp.corkage_details ? ' — ' + fp.corkage_details : '') + (fp.corkage_liquor ? ' (liquor being served)' : '')));
+    else if (fp.corkage_liquor) foodPrefItems.push(plainItem('corkage', 'Liquor being served'));
     pushGroup('Food Preference', foodPrefItems);
 
     // Not every one of these is a START time -- "Wind-up"/"Chaat end"/
@@ -270,8 +316,8 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
       var startVal = fp[g.start];
       var endVal = g.end ? fp[g.end] : null;
       if (!startVal && !endVal) return;
-      if (startVal && endVal) timingItems.push(T2(g.label) + ' @ ' + startVal + ' – ' + endVal);
-      else timingItems.push(T2(g.label) + ' @ ' + (startVal || endVal));
+      var text = (startVal && endVal) ? (T2(g.label) + ' @ ' + startVal + ' – ' + endVal) : (T2(g.label) + ' @ ' + (startVal || endVal));
+      timingItems.push(plainItem('timing:' + g.start, text));
     });
     pushGroup('Timings', timingItems);
 
@@ -281,14 +327,15 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
       if (fp.room_check_in) roomParts.push('check-in ' + fp.room_check_in);
       if (fp.room_check_out) roomParts.push('check-out ' + fp.room_check_out);
       if (fp.room_count != null) roomParts.push(fp.room_count + ' room(s)');
-      if (roomParts.length) roomItems.push('Rooms — ' + roomParts.join(', '));
+      if (roomParts.length) roomItems.push(plainItem('room_info', 'Rooms — ' + roomParts.join(', ')));
     }
     pushGroup('Room Info', roomItems);
 
     var equipItems = [];
     EQUIP_FIELDS.filter(function(f){ return fp[f.id + '_enabled']; }).forEach(function(f){
       var count = fp[f.id + '_count']; var price = fp[f.id + '_price'];
-      equipItems.push(T2(f.label) + (count != null ? ': ' + count : '') + (price != null ? ' @ ₹' + price : ''));
+      var text = T2(f.label) + (count != null ? ': ' + count : '') + (price != null ? ' @ ₹' + price : '');
+      equipItems.push(plainItem('equip:' + f.id, text));
     });
     pushGroup('Equipment Add-ons', equipItems);
 
@@ -302,15 +349,15 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
         var dfTotal = calcDriversFoodTotal(fp.drivers_food_count, fp.drivers_food_total_override);
         if (dfTotal != null) dfParts.push('total ₹' + dfTotal.toLocaleString('en-IN'));
       }
-      driversItems.push('Drivers food' + (dfParts.length ? ' — ' + dfParts.join(', ') : ''));
+      driversItems.push(plainItem('drivers_food', 'Drivers food' + (dfParts.length ? ' — ' + dfParts.join(', ') : '')));
     }
     pushGroup('Drivers Food', driversItems);
   }
 
   var lmsPlateItems = [];
   if (lmsPlate) {
-    if (lmsPlate.comp != null) lmsPlateItems.push('Complimentary plates: ' + lmsPlate.comp);
-    if (lmsPlate.rateFull != null) lmsPlateItems.push('Extra plate @ ₹' + lmsPlate.rateFull.toLocaleString('en-IN') + ' per plate');
+    if (lmsPlate.comp != null) lmsPlateItems.push(plainItem('extra_plate_comp', 'Complimentary plates: ' + lmsPlate.comp));
+    if (lmsPlate.rateFull != null) lmsPlateItems.push(plainItem('extra_plate_rate', 'Extra plate @ ₹' + lmsPlate.rateFull.toLocaleString('en-IN') + ' per plate'));
   }
   pushGroup('Extra Plate Info', lmsPlateItems);
 
@@ -319,7 +366,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
     if (fp.after_party_pax != null) apParts.push(fp.after_party_pax + ' pax');
     if (fp.after_party_start_time) apParts.push('start ' + fp.after_party_start_time);
     if (fp.after_party_windup_time) apParts.push('wind-up ' + fp.after_party_windup_time);
-    pushGroup('After Party', ['After party' + (apParts.length ? ' — ' + apParts.join(', ') : '')]);
+    pushGroup('After Party', [plainItem('after_party', 'After party' + (apParts.length ? ' — ' + apParts.join(', ') : ''))]);
   }
 
   var lmsRaw = event.lms_raw || null;
@@ -350,10 +397,31 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
     var deptValues = (configsByDept && configsByDept[d.id]) || {};
     deptDefs.forEach(function(cfg){
       var val = formatConfigValue(cfg, deptValues[cfg.key], event.pax);
-      if (val) deptConfigItems.push(d.name + ' — ' + cfg.label + ': ' + val);
+      if (val) deptConfigItems.push(plainItem('config:' + d.id + ':' + cfg.key, d.name + ' — ' + cfg.label + ': ' + val));
     });
   });
   pushGroup('Department Configs', deptConfigItems);
+
+  // Layout Information lives outside bulletGroups (its own block, with an
+  // optional image) but still needs to register in fpSnapshotMap / flag a
+  // change the same way every other line does.
+  var layoutHasData = !!(fp && ((fp.layout_info && fp.layout_info.trim()) || fp.layout_image_url));
+  var layoutChanged = layoutHasData ? fieldChanged('layout_info', (fp.layout_info || '') + '|' + (fp.layout_image_url || '')) : false;
+
+  // Whether there's anything new to show the chef since their last
+  // acknowledgement -- drives both the highlight legend and whether the
+  // Acknowledge button reappears (re-acknowledging clears every highlight
+  // by overwriting the snapshot with the current one).
+  var hasChangesSinceAck = false;
+  if (ackSnap) {
+    var dishesEqual = ackSnapDishes.size === currentDishNames.size &&
+      Array.from(currentDishNames).every(function(dn){ return ackSnapDishes.has(dn); });
+    if (!dishesEqual) hasChangesSinceAck = true;
+    else {
+      var allKeys = Object.keys(fpSnapshotMap).concat(Object.keys(ackSnapFp));
+      hasChangesSinceAck = allKeys.some(function(k){ return fpSnapshotMap[k] !== ackSnapFp[k]; });
+    }
+  }
 
   var attnChefLines = [fp && fp.service_notes, fp && fp.general_notes]
     .filter(Boolean).join('\n').split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
@@ -419,15 +487,20 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
           between it and the real page. */}
       <style>{"@media print { body * { visibility: hidden !important; } .fp-print-root, .fp-print-root * { visibility: visible !important; } .fp-print-root { position: absolute !important; inset: auto !important; left: 0 !important; top: 0 !important; width: 100% !important; height: auto !important; overflow: visible !important; } .fp-no-print { display: none !important; } }"}</style>
       <div className="fp-no-print" style={{ position: "sticky", top: 0, zIndex: 1, background: C.surface, borderBottom: "1px solid " + C.border, padding: "12px 20px", display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
-        {fp && fp.chef_ack_by && (
+        {fp && fp.chef_ack_by && !hasChangesSinceAck && (
           <span style={{ marginRight: "auto", fontSize: 10.5, fontWeight: 600, color: "#1C7A3D" }}>
             ✓ {T2("Seen by")} {fp.chef_ack_by}
           </span>
         )}
-        {currentUser && currentUser.role === 'head_chef' && !(fp && fp.chef_ack_by) && onAckChef && (
+        {fp && fp.chef_ack_by && hasChangesSinceAck && (
+          <span style={{ marginRight: "auto", fontSize: 10.5, fontWeight: 600, color: "#B38600" }}>
+            ⚠ {T2("Changed since")} {fp.chef_ack_by} {T2("last acknowledged")}
+          </span>
+        )}
+        {currentUser && currentUser.role === 'head_chef' && (!(fp && fp.chef_ack_by) || hasChangesSinceAck) && onAckChef && (
           <button onClick={handleAck} disabled={acking}
             style={{ padding: "8px 16px", borderRadius: 8, background: "#1C7A3D", border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: acking ? "default" : "pointer", opacity: acking ? 0.7 : 1 }}>
-            {acking ? T2("Saving…") : "✓ " + T2("Acknowledge")}
+            {acking ? T2("Saving…") : "✓ " + T2(fp && fp.chef_ack_by ? "Re-acknowledge" : "Acknowledge")}
           </button>
         )}
         <button onClick={onClose}
@@ -447,6 +520,11 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
           {fp && fp.locked && (
             <div style={{ display: "inline-block", marginTop: 6, padding: "3px 10px", borderRadius: 4, border: "1px solid #1C7A3D", color: "#1C7A3D", fontSize: 6.5, fontWeight: 700, letterSpacing: ".5px" }}>
               🔒 {T2("FINAL — SENT TO KITCHEN")}
+            </div>
+          )}
+          {hasChangesSinceAck && (
+            <div style={{ marginTop: 6, fontSize: 7, color: "#7A5F00" }}>
+              <span style={{ ...CHANGED_HILITE, paddingTop: 1, paddingBottom: 1 }}>■</span> {T2("= changed since")} {fp.chef_ack_by} {T2("last acknowledged this FP")}
             </div>
           )}
         </div>
@@ -523,7 +601,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                                 return (
                                   <React.Fragment key={n}>
                                     {isNewSection && <SectionSubHead>{sec === 'Extras' ? T2('Extras') : sec}</SectionSubHead>}
-                                    <Bullet dot={false}>
+                                    <Bullet dot={false} changed={dishChanged(n)}>
                                       {sign === '+'
                                         ? <span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span>
                                         : <span style={{ color: "#B3281F", fontWeight: 700 }}>− {n}</span>}
@@ -542,7 +620,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                           return (
                             <div key={sec.name}>
                               <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2("New")} {sec.name})</span></SubHead>
-                              {sortedByVeg(sec.dishes, dishSectionOrder).map(function(n){ return <Bullet key={'n' + n} dot={false}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
+                              {sortedByVeg(sec.dishes, dishSectionOrder).map(function(n){ return <Bullet key={'n' + n} dot={false} changed={dishChanged(n)}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
                             </div>
                           );
                         })}
@@ -550,9 +628,13 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                             dishes gone — one line, not a pile of individual
                             "− dish" bullets. */}
                         {(diff.removedSections || []).map(function(sec){
+                          // Whole-section removals have no per-dish bullet to
+                          // flag individually -- new since ack when at least
+                          // one of its dishes was still selected at ack time.
+                          var changed = ackSnap && sec.dishes.some(function(dn){ return ackSnapDishes.has(dn); });
                           return (
                             <div key={'rs-' + sec.name}>
-                              <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic", color: "#B3281F" }}>({T2("Section removed")}: {sec.name} — {sec.dishes.length} {T2("dishes")})</span></SubHead>
+                              <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic", color: "#B3281F", ...(changed ? CHANGED_HILITE : {}) }}>({T2("Section removed")}: {sec.name} — {sec.dishes.length} {T2("dishes")})</span></SubHead>
                             </div>
                           );
                         })}
@@ -578,7 +660,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                         return (
                           <React.Fragment key={n}>
                             {isNewSection && <SectionSubHead>{sec === 'Extras' ? T2('Extras') : sec}</SectionSubHead>}
-                            <Bullet>{n}</Bullet>
+                            <Bullet changed={dishChanged(n)}>{n}</Bullet>
                           </React.Fragment>
                         );
                       })}
@@ -601,7 +683,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                 return (
                   <div key={gi}>
                     <SubHead tight>{T2(g.heading)}</SubHead>
-                    {g.items.map(function(b, i){ return <Bullet key={i} dot={false}>{b}</Bullet>; })}
+                    {g.items.map(function(b, i){ return <Bullet key={i} dot={false} changed={b.changed}>{b.node}</Bullet>; })}
                   </div>
                 );
               })
@@ -611,10 +693,10 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                 of the F&B/banquet info instead of its own full-width block
                 at the very bottom, where it used to read as an afterthought
                 disconnected from everything else about the function. ── */}
-            {fp && ((fp.layout_info && fp.layout_info.trim()) || fp.layout_image_url) && (
+            {layoutHasData && (
               <div>
                 <SubHead tight>{T2("Layout Information")}</SubHead>
-                {fp.layout_info && fp.layout_info.trim() && <Bullet dot={false}><span style={{ whiteSpace: "pre-wrap" }}>{fp.layout_info}</span></Bullet>}
+                {fp.layout_info && fp.layout_info.trim() && <Bullet dot={false} changed={layoutChanged}><span style={{ whiteSpace: "pre-wrap" }}>{fp.layout_info}</span></Bullet>}
                 {fp.layout_image_url && (
                   <img src={fp.layout_image_url} alt={T2("Layout reference")}
                     style={{ display: "block", marginTop: 6, maxWidth: "100%", maxHeight: 260, objectFit: "contain" }} />

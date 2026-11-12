@@ -640,19 +640,27 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // there, not here). Surfaced to sales as a "Chef Ack" column in
   // BookedFunctionsView and on the public FP Hub's calendar cards (both
   // already read event_function_plans the same way "Made By" does).
-  async function ackFpChef() {
+  // `snapshot` -- {fp: {key: diffVal}, dishNames: [...]} -- is built by
+  // FunctionPlanPrintView from exactly what it just rendered, so a later
+  // print can diff "now" against "what the chef actually saw" and highlight
+  // anything that changed since, whether that's a menu dish, an F&B/banquet
+  // info line, a timing, anything printed. Re-acknowledging (the button
+  // reappears once something changes) overwrites the snapshot with the
+  // current one, clearing every highlight the chef has now reviewed.
+  async function ackFpChef(snapshot) {
     if (!fp) return;
     var who = (currentUser && currentUser.name) || null;
     if (!who) return;
     var now = new Date().toISOString();
-    var histEntry = { at: now, by: who, summary: T2('Head chef acknowledged this Function Plan') };
+    var wasAlreadyAcked = !!fp.chef_ack_by;
+    var histEntry = { at: now, by: who, summary: T2(wasAlreadyAcked ? 'Head chef re-acknowledged this Function Plan' : 'Head chef acknowledged this Function Plan') };
     setFp(function(prevFp){
       var base = prevFp || { event_id: event.id };
-      return { ...base, chef_ack_by: who, chef_ack_at: now, fp_history: [ ...(base.fp_history || []), histEntry ] };
+      return { ...base, chef_ack_by: who, chef_ack_at: now, chef_ack_snapshot: snapshot, fp_history: [ ...(base.fp_history || []), histEntry ] };
     });
     try {
       var fresh = await fetchFpFresh('fp_history, created_by');
-      var payload = { event_id: event.id, chef_ack_by: who, chef_ack_at: now,
+      var payload = { event_id: event.id, chef_ack_by: who, chef_ack_at: now, chef_ack_snapshot: snapshot,
         fp_history: [ ...((fresh && fresh.fp_history) || []), histEntry ] };
       if (!(fresh && fresh.created_by) && who) payload.created_by = who;
       var res = await supabase.from('event_function_plans').upsert(payload, { onConflict: 'event_id' }).select().single();

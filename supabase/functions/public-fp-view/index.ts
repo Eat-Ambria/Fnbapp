@@ -115,7 +115,7 @@ function projectLmsRaw(raw: any): any {
 // reasons) and sent_to_kitchen_by — none of which the print shows, all of
 // which a `select('*')` would otherwise hand to anyone with the link.
 const FP_SAFE_COLUMNS = [
-  "event_id", "locked", "sent_to_kitchen", "created_by", "chef_ack_by", "chef_ack_at",
+  "event_id", "locked", "sent_to_kitchen", "created_by", "chef_ack_by", "chef_ack_at", "chef_ack_snapshot",
   "after_party_enabled", "after_party_pax", "after_party_start_time", "after_party_windup_time",
   "corkage_details", "corkage_liquor", "corkage_price",
   "drivers_food_count", "drivers_food_foc", "drivers_food_required", "drivers_food_total_override",
