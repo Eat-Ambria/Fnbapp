@@ -1624,7 +1624,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                       style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center",
                         gap: isMobile ? 12 : 16, width: "100%", textAlign: "left",
                         position: "relative", backgroundColor: K.cardWarm, border: "1px solid " + K.cardWarmLine,
-                        borderRadius: 18, padding: isMobile ? "14px 16px" : "16px 20px", marginBottom: 0, cursor: "pointer",
+                        borderRadius: 18, padding: isMobile ? "14px 36px 14px 16px" : "16px 20px", marginBottom: 0, cursor: "pointer",
                         overflow: "hidden", boxShadow: K.shadowCard }}>
                       {/* Urgency as a spine, so today and tomorrow are findable
                           without reading a date on every card. */}
@@ -1669,13 +1669,13 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="clock" size={13} strokeWidth={1.9} />{ev.time || T2("TBD")}</span>
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="users" size={13} strokeWidth={1.9} />{ev.pax || "?"} {T2("pax")}</span>
                           {ev.menuPackage && <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="plate" size={13} strokeWidth={1.9} />{describeEventMenu(ev)}</span>}
+                          {isMobile && !hasMenu && <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: K.warn, fontWeight: 700 }}>
+                            <Icon name="alert" size={13} strokeWidth={2} />{T2("No menu yet")}</span>}
                         </span>
                         {/* The per-category chip breakdown is dropped on mobile —
                             a function with a dozen categories turned every card
-                            into a scroll of its own; the dish-count total
-                            (trailing block) is enough for a list view, and the
-                            full breakdown is still one tap away inside the
-                            editor. */}
+                            into a scroll of its own; the full breakdown is still
+                            one tap away inside the editor. */}
                         {hasMenu && !isMobile && (
                           <span style={{ display: "flex", gap: 7, marginTop: 10, flexWrap: "wrap" }}>
                             {Object.entries(stats.byCat).sort(function(a, b) { return a[0].localeCompare(b[0]); }).map(function(e2) {
@@ -1693,18 +1693,29 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                       </span>
                       </span>
 
-                      <span style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0,
-                        justifyContent: isMobile ? "space-between" : "flex-end" }}>
-                      <span style={{ textAlign: isMobile ? "left" : "right" }}>
-                        {!hasMenu &&
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 13px", borderRadius: 999,
-                              fontFamily: K.fontBody, fontSize: 12, fontWeight: 700, whiteSpace: "nowrap",
-                              background: K.warnBg, color: K.warn, border: "1px solid " + K.warnBorder }}>
-                              <Icon name="alert" size={13} strokeWidth={2} />{T2("No menu yet")}
-                            </span>}
-                      </span>
-                      <span style={{ flexShrink: 0, color: K.textFaint, display: "flex" }}><Icon name="chevronR" size={17} strokeWidth={2.1} /></span>
-                      </span>
+                      {/* On mobile the "No menu yet" flag moved into the meta
+                          line above (it was its own trailing row before,
+                          which — once the dish count next to it was removed —
+                          left a tall empty strip at the end of every card).
+                          The chevron rides along as a bottom-right corner
+                          marker instead of a row of its own. */}
+                      {isMobile ? (
+                        <span style={{ position: "absolute", right: 16, bottom: 14, color: K.textFaint, display: "flex" }}>
+                          <Icon name="chevronR" size={17} strokeWidth={2.1} />
+                        </span>
+                      ) : (
+                        <span style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, justifyContent: "flex-end" }}>
+                        <span style={{ textAlign: "right" }}>
+                          {!hasMenu &&
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 13px", borderRadius: 999,
+                                fontFamily: K.fontBody, fontSize: 12, fontWeight: 700, whiteSpace: "nowrap",
+                                background: K.warnBg, color: K.warn, border: "1px solid " + K.warnBorder }}>
+                                <Icon name="alert" size={13} strokeWidth={2} />{T2("No menu yet")}
+                              </span>}
+                        </span>
+                        <span style={{ flexShrink: 0, color: K.textFaint, display: "flex" }}><Icon name="chevronR" size={17} strokeWidth={2.1} /></span>
+                        </span>
+                      )}
                     </button>
                     {/* A peek at this event's Function Plan without leaving the
                         list for the full item-builder — top-right, same corner
