@@ -1158,6 +1158,11 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // under (this event only — never touches the shared package).
   async function addCustomDish(name, catId, sectionId) {
     if (blockIfMenuLocked()) return;
+    // Backstop for the UI-level requirement (the Add-dish modal disables its
+    // confirm button without one) — a brand-new dish with no SOP/recipe
+    // section would otherwise silently have no recipe at all and only
+    // surface much later as an "Unmapped" entry in Kitchen Hub Planning.
+    if (!catId) { alert(T2('Pick an SOP / recipe section before adding this dish.')); return; }
     try {
       await createCustomDishInLibrary(supabase, name, catId);
       setDishLibBump(function(n){ return n + 1; });

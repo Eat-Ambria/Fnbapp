@@ -343,6 +343,11 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // select it for this proposal, and tag which section/subsection pill it
   // shows under (this proposal only — never touches the shared package).
   async function addCustomDish(name, catId, sectionId) {
+    // Backstop for the UI-level requirement (the Add-dish modal disables its
+    // confirm button without one) — a brand-new dish with no SOP/recipe
+    // section would otherwise silently have no recipe at all and only
+    // surface much later as an "Unmapped" entry in Kitchen Hub Planning.
+    if (!catId) { sayFail(T2('Could not add that dish'), T2('Pick an SOP / recipe section first.')); return; }
     try {
       await createCustomDishInLibrary(supabase, name, catId);
       setDishLibBump(function(n){ return n + 1; });
@@ -985,6 +990,12 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
   async function confirmCustom(){
     if (!pendingCustom || !pendingCustom.name.trim() || customSaving) return;
     if (matchedExisting && selectedSet[matchedExisting.name]) { setPendingCustom(null); return; }
+    // An SOP/recipe section is required for a genuinely NEW dish (not one
+    // that matched an existing library entry, which already has whatever
+    // category it has) — see MenuEditor.jsx's confirmCustom for why: without
+    // this, a brand-new dish silently had no recipe at all and only ever
+    // surfaced, much later, as an "Unmapped" entry in Kitchen Hub Planning.
+    if (!matchedExisting && !pendingCustom.catId) { sayFail(T2('Pick an SOP / recipe section before adding this dish.')); return; }
     setCustomSaving(true);
     try {
       if (matchedExisting && onAddExistingDish) {
@@ -1422,7 +1433,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
                 only matters when creating a genuinely new one. */}
             {!matchedExisting && (
               <>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("SOP / recipe section")} <span style={{ textTransform: "none", fontWeight: 500, letterSpacing: 0 }}>({T2("optional")})</span></div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("SOP / recipe section")} <span style={{ textTransform: "none", fontWeight: 500, letterSpacing: 0, color: C.red }}>({T2("required")})</span></div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
                   {(RECIPE_DB.cats || []).map(function(c){
                     var active = pendingCustom.catId === c.id;
@@ -1463,8 +1474,8 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
                 style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                 {T2("Cancel")}
               </button>
-              <button onClick={confirmCustom} disabled={!pendingCustom.name.trim() || customSaving || (matchedExisting && selectedSet[matchedExisting.name])}
-                style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: customSaving ? "wait" : "pointer", opacity: (customSaving || (matchedExisting && selectedSet[matchedExisting.name])) ? 0.6 : 1 }}>
+              <button onClick={confirmCustom} disabled={!pendingCustom.name.trim() || customSaving || (matchedExisting && selectedSet[matchedExisting.name]) || (!matchedExisting && !pendingCustom.catId)}
+                style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: customSaving ? "wait" : "pointer", opacity: (customSaving || (matchedExisting && selectedSet[matchedExisting.name]) || (!matchedExisting && !pendingCustom.catId)) ? 0.6 : 1 }}>
                 {customSaving ? T2("Adding…") : (matchedExisting ? T2("Add to menu") : T2("Add dish"))}
               </button>
             </div>
