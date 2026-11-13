@@ -5,7 +5,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { RECIPE_DB, getCatIdForDish, getExplicitCatIdForDish, getAllDishes, resolveDishHindi, resolveDishStore, upsertDishMaster, upsertDishCat } from '../data/recipeData.js';
-import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
+import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, isMenuPackageSectionsHydrated } from '../data/menuPackages.js';
 import { supabase } from '../lib/supabase.js';
 import { getEventItemsByDept } from '../lib/eventItems.js';
 
@@ -139,6 +139,14 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   // one — a dish lands under its native section if the package lists it
   // there, or under whichever section this event tagged it into via
   // sectionOverrides, or in "Extras" if neither.
+  // This event has a package, but the global package-sections map hasn't
+  // hydrated yet (see menuPackages.js's isMenuPackageSectionsHydrated) —
+  // MENU_PACKAGE_SECTIONS[pkgName] being empty right now doesn't mean this
+  // package genuinely has no sections, just that we don't know yet. Render a
+  // brief loading state below instead of falling back to the generic
+  // SOP-category grouping, which looked like a real (wrong) answer rather
+  // than "still loading" and was flashing on a fast enough reload.
+  var sectionsLoading = !!pkgName && !isMenuPackageSectionsHydrated();
   var pkgSections = pkgName ? (MENU_PACKAGE_SECTIONS[pkgName] || null) : null;
   // V85 — a subsection (e.g. Main Course > Hyderabadi Cuisine) is addressed
   // exactly like a section — same id space, just nested one level in the
@@ -508,10 +516,13 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
               style={{ width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid " + C.greenBorder, fontSize: 12, color: C.text, background: C.surface, boxSizing: "border-box", marginTop: 8 }} />
           </div>
           <div style={COLBODY}>
-            {selected.length === 0 && (
+            {selected.length === 0 && !sectionsLoading && (
               <div style={{ textAlign: "center", padding: 24, color: C.muted, fontSize: 12 }}>{T2("No dishes selected")}<br /><span style={{ fontSize: 11 }}>{T2("Click + on the left to add")}</span></div>
             )}
-            {(function() {
+            {sectionsLoading && selected.length > 0 && (
+              <div style={{ textAlign: "center", padding: 24, color: C.muted, fontSize: 12 }}>{T2("Loading menu sections…")}</div>
+            )}
+            {!sectionsLoading && (function() {
               var q2 = selSearch.trim().toLowerCase();
               var filteredGroups = q2
                 ? selGroups.map(function(g) { return { ...g, names: g.names.filter(function(n) { return n.toLowerCase().includes(q2); }) }; }).filter(function(g) { return g.names.length > 0; })

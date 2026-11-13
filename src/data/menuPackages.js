@@ -23,6 +23,20 @@ let MENU_PACKAGE_SECTIONS = {};
 // Shape: { [pkgName]: { tier: 'luxury'|'magnum'|null, id: string|null } }
 let MENU_PACKAGE_META = {};
 
+// True from the first real hydrateMenuPackageSections() call onward (boot's
+// own call included) — lets a consumer tell "this package genuinely has no
+// custom sections" apart from "sections haven't loaded yet", which an empty
+// MENU_PACKAGE_SECTIONS[pkgName] can't distinguish on its own. A screen that
+// renders before boot hydration finishes already re-renders correctly once
+// the 'ambria:menu-packages-refreshed' event fires (see notifyMenuPackagesRefreshed) —
+// but a fast-enough reload/navigation can still catch and SCREENSHOT the
+// one-render-wide wrong-fallback window before that correction lands. This
+// flag lets a consumer skip rendering the fallback at all during that
+// window (show a brief loading state instead) rather than flash the wrong
+// grouping before self-correcting.
+let menuPackageSectionsHydrated = false;
+function isMenuPackageSectionsHydrated() { return menuPackageSectionsHydrated; }
+
 // Every consumer of MENU_PACKAGES/MENU_PACKAGE_SECTIONS reads these mutable
 // module-level objects straight off the import binding at render time rather
 // than via React state, so mutating them in place is silent to React -- the
@@ -70,6 +84,7 @@ function hydrateMenuPackageSections(sectionsMap) {
   if (!sectionsMap || typeof sectionsMap !== 'object') return;
   Object.keys(MENU_PACKAGE_SECTIONS).forEach(k => delete MENU_PACKAGE_SECTIONS[k]);
   Object.assign(MENU_PACKAGE_SECTIONS, sectionsMap);
+  menuPackageSectionsHydrated = true;
   notifyMenuPackagesRefreshed();
 }
 
@@ -140,6 +155,7 @@ export {
   MENU_PACKAGE_META,
   hydrateMenuPackages,
   hydrateMenuPackageSections,
+  isMenuPackageSectionsHydrated,
   refreshMenuPackages,
   describeEventMenu
 };
