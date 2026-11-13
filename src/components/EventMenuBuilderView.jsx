@@ -475,9 +475,14 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // dish Kitchen actually cooks (has a real SOP/recipe mapping) belongs in
   // Kitchen Tracking regardless of which dept tab it's organized under there
   // — e.g. a Bakery-tab dessert that's a genuine Kitchen-cooked SOP item.
+  // Beverage/Fruit are the one deliberate exception: they already have their
+  // own dedicated Ops screens (unlike Bakery, which has none), so a recipe-
+  // mapped drink (e.g. Shikanji) stays out of Kitchen Tracking same as always.
   function isKitchenTrackedDish(name) {
     var d = allDishesByName[name];
-    return !!(d && d.hasRecipe);
+    if (!d || !d.hasRecipe) return false;
+    var dept = effectiveDeptForDish(name);
+    return dept !== 'bev' && dept !== 'frt';
   }
 
   // Kitchen Hub's entire production pipeline reads events.menu as a flat kitchen

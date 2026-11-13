@@ -99,7 +99,11 @@ export function resolveDeptForDish(name, ctx) {
 // events.menu regardless of which dept tab it's organized under elsewhere —
 // e.g. a dessert filed under the Bakery tab for proposal/ordering purposes
 // still has to show up in Kitchen's Event Day / Prep Day tabs if it's a
-// Kitchen-cooked SOP item.
+// Kitchen-cooked SOP item. The one deliberate exception: Beverage and Fruits
+// already have their own dedicated Ops screens (unlike Bakery, which has
+// none today), so a recipe-mapped drink or fruit prep (e.g. Shikanji) stays
+// out of Kitchen Tracking the same way it always has — only Bakery actually
+// needed this rule, not every non-Kitchen dept.
 export async function getEventItemsByDept(event) {
   const out = { kit: [], bev: [], bak: [], frt: [], svc: [], crk: [], trn: [], kitchenTracked: [] };
   if (!event || !event.id) return out;
@@ -151,7 +155,7 @@ export async function getEventItemsByDept(event) {
     if (!out[dept]) out[dept] = [];
     out[dept].push(it.dish_name);
     const d = allDishesByName[it.dish_name];
-    if (d && d.hasRecipe) out.kitchenTracked.push(it.dish_name);
+    if (d && d.hasRecipe && dept !== 'bev' && dept !== 'frt') out.kitchenTracked.push(it.dish_name);
   });
   return out;
 }
@@ -229,10 +233,21 @@ export async function syncAllKitchenMenuMirrors(events) {
     // in full: kitchen_tracking keys a dish by array INDEX into events.menu,
     // so an unordered result here can silently reassign one dish's recorded
     // progress to a different dish the next time this batch mirror-sync runs.
-    const itemRows = await fetchAllRows(() => supabase.from('event_items').select('event_id, dish_name').in('event_id', ids).order('ordering', { ascending: true }));
+    const [itemRows, sectionsRes, metaRes] = await Promise.all([
+      fetchAllRows(() => supabase.from('event_items').select('event_id, dish_name').in('event_id', ids).order('ordering', { ascending: true })),
+      supabase.from('dish_catalogue_sections').select('id, sales_dept, parent_section_id'),
+      supabase.from('sales_items_meta').select('dish_name, sales_dept'),
+    ]);
 
     const itemsByEvent = {};
     (itemRows || []).forEach(r => { (itemsByEvent[r.event_id] = itemsByEvent[r.event_id] || []).push(r.dish_name); });
+
+    const sectionsArr = sectionsRes.data || [];
+    const sectionSalesDeptMap = {};
+    sectionsArr.forEach(s => { sectionSalesDeptMap[s.id] = s.sales_dept || 'kit'; });
+
+    const metaDeptByName = {};
+    (metaRes.data || []).forEach(r => { metaDeptByName[r.dish_name] = r.sales_dept || DEFAULT_DEPT; });
 
     const allDishesByName = {};
     (getAllDishes({ includeInactive: true }) || []).forEach(d => { allDishesByName[d.dish_name] = d; });
@@ -240,10 +255,17 @@ export async function syncAllKitchenMenuMirrors(events) {
     const updates = [];
     initialized.forEach(event => {
       const items = itemsByEvent[event.id] || [];
-      // Not a dept filter — see getEventItemsByDept's kitchenTracked comment
-      // above: sales_dept only routes proposal/Items-tab tabs, never decides
-      // what Kitchen actually tracks. A real SOP/recipe mapping does.
-      const kitNames = items.filter(name => { const d = allDishesByName[name]; return !!(d && d.hasRecipe); });
+      const { dishNameToPkgDept, sectionOverrideDept } = buildEventDeptContext(event, sectionsArr);
+      const ctx = { allDishesByName, sectionSalesDeptMap, metaDeptByName, dishNameToPkgDept, sectionOverrideDept };
+      // Has a recipe, same as getEventItemsByDept's kitchenTracked — except
+      // Beverage/Fruit stay excluded, since those already have their own
+      // dedicated Ops screens (see that function's comment for why).
+      const kitNames = items.filter(name => {
+        const d = allDishesByName[name];
+        if (!d || !d.hasRecipe) return false;
+        const dept = resolveDeptForDish(name, ctx);
+        return dept !== 'bev' && dept !== 'frt';
+      });
       const current = Array.isArray(event.menu) ? event.menu : [];
       const same = kitNames.length === current.length && kitNames.every((n, i) => n === current[i]);
       if (!same) updates.push({ id: event.id, menu: kitNames });
