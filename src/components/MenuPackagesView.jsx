@@ -1696,12 +1696,8 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                       <span style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0,
                         justifyContent: isMobile ? "space-between" : "flex-end" }}>
                       <span style={{ textAlign: isMobile ? "left" : "right" }}>
-                        {hasMenu
-                          ? <span style={{ display: "flex", alignItems: "baseline", gap: isMobile ? 6 : 0, flexDirection: isMobile ? "row" : "column" }}>
-                              <span style={{ fontFamily: K.fontBody, fontSize: 26, fontWeight: 700,
-                              lineHeight: 1.1, letterSpacing: "-0.6px", fontVariantNumeric: "tabular-nums", color: K.hdrTitle }}>{stats.total}</span>
-                            <span style={{ fontFamily: K.fontBody, fontSize: 11.5, color: K.hdrMeta, marginTop: isMobile ? 0 : 2 }}>{T2("dishes")}</span></span>
-                          : <span style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 13px", borderRadius: 999,
+                        {!hasMenu &&
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 13px", borderRadius: 999,
                               fontFamily: K.fontBody, fontSize: 12, fontWeight: 700, whiteSpace: "nowrap",
                               background: K.warnBg, color: K.warn, border: "1px solid " + K.warnBorder }}>
                               <Icon name="alert" size={13} strokeWidth={2} />{T2("No menu yet")}
