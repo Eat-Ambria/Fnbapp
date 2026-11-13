@@ -23,11 +23,36 @@ let MENU_PACKAGE_SECTIONS = {};
 // Shape: { [pkgName]: { tier: 'luxury'|'magnum'|null, id: string|null } }
 let MENU_PACKAGE_META = {};
 
+// Every consumer of MENU_PACKAGES/MENU_PACKAGE_SECTIONS reads these mutable
+// module-level objects straight off the import binding at render time rather
+// than via React state, so mutating them in place is silent to React -- the
+// four screens that need to re-render when a package's dishes/sections
+// actually change (EventMenuBuilderView, MenuEditor, MenuPackagesView,
+// MenuBuilderView) all listen for this one event to force that re-render.
+// This used to only fire from refreshMenuPackages() (the "Packages" tab's own
+// save path), so App.jsx's BOOT hydration of the exact same objects
+// (hydrateMenuPackages/hydrateMenuPackageSections called straight from
+// loadAllConfig(), with no event after) never told anyone -- a screen that
+// happened to render before that boot promise resolved (this app paints
+// immediately and hydrates progressively, it doesn't gate on a loading
+// screen) was stuck reading the pre-hydration empty object, with nothing to
+// prompt it to look again, until some unrelated re-render happened to
+// re-evaluate it. A package's own sections (e.g. a custom "European
+// Desserts" section) would then intermittently fall back to the generic
+// SOP-category grouping instead of the package's real section list -- "the
+// package keeps changing" / dishes "getting hidden". Firing it from inside
+// the hydrate functions themselves means every caller, boot included, is
+// covered automatically.
+function notifyMenuPackagesRefreshed() {
+  try { window.dispatchEvent(new Event('ambria:menu-packages-refreshed')); } catch(e) {}
+}
+
 function hydrateMenuPackages(pkgMap, groups, meta) {
   if (pkgMap && typeof pkgMap === 'object' && Object.keys(pkgMap).length > 0) {
     Object.keys(MENU_PACKAGES).forEach(k => delete MENU_PACKAGES[k]);
     Object.assign(MENU_PACKAGES, pkgMap);
     MENU_PACKAGE_NAMES = Object.keys(MENU_PACKAGES);
+    notifyMenuPackagesRefreshed();
   }
   if (groups && typeof groups === 'object') {
     Object.keys(DISH_GROUPS).forEach(k => delete DISH_GROUPS[k]);
@@ -45,12 +70,14 @@ function hydrateMenuPackageSections(sectionsMap) {
   if (!sectionsMap || typeof sectionsMap !== 'object') return;
   Object.keys(MENU_PACKAGE_SECTIONS).forEach(k => delete MENU_PACKAGE_SECTIONS[k]);
   Object.assign(MENU_PACKAGE_SECTIONS, sectionsMap);
+  notifyMenuPackagesRefreshed();
 }
 
 // V74 — Re-fetch menu_packages from Supabase and re-hydrate the in-memory maps
-// including the sections overlay. Fires 'ambria:menu-packages-refreshed' on
-// window so React consumers can re-render. Safe to call after any menu_packages
-// write (save/create/duplicate/delete/CSV import).
+// including the sections overlay — hydrateMenuPackages/hydrateMenuPackageSections
+// each fire 'ambria:menu-packages-refreshed' on window themselves so React
+// consumers re-render. Safe to call after any menu_packages write
+// (save/create/duplicate/delete/CSV import).
 async function refreshMenuPackages() {
   try {
     const res = await supabase.from('menu_packages').select('*');
@@ -73,7 +100,6 @@ async function refreshMenuPackages() {
     });
     hydrateMenuPackages(pkgMap, groups, meta);
     hydrateMenuPackageSections(sections);
-    try { window.dispatchEvent(new Event('ambria:menu-packages-refreshed')); } catch(e) {}
     return true;
   } catch (e) {
     console.warn('[menuPackages] refresh err:', e);
