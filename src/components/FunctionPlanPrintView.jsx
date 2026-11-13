@@ -14,7 +14,7 @@ import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { localDateStr } from '../utils/helpers.js';
-import { SALES_DEPTS, DEPT_CONFIGS } from '../data/salesConfig.js';
+import { SALES_DEPTS, DEPT_CONFIGS, isDefaultConfigValue } from '../data/salesConfig.js';
 import { TIME_FIELD_GROUPS, EQUIP_FIELDS, getLmsPlateInfo, calcDriversFoodTotal } from './FunctionPlanTab.jsx';
 import { resolveDishVeg } from '../data/recipeData.js';
 
@@ -396,6 +396,12 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
     var deptDefs = DEPT_CONFIGS[d.id] || [];
     var deptValues = (configsByDept && configsByDept[d.id]) || {};
     deptDefs.forEach(function(cfg){
+      // ConfigsPanel auto-fills every single-choice config (options/radio/
+      // ratio) to its "Standard" tier the moment that dept's tab is opened,
+      // even if nobody actually chose anything — printing that baseline here
+      // made it look like sales had configured every dept on every FP. Only
+      // call one out once it's actually been moved off the standard tier.
+      if (isDefaultConfigValue(cfg, deptValues[cfg.key])) return;
       var val = formatConfigValue(cfg, deptValues[cfg.key], event.pax);
       if (val) deptConfigItems.push(plainItem('config:' + d.id + ':' + cfg.key, d.name + ' — ' + cfg.label + ': ' + val));
     });

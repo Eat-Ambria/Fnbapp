@@ -89,3 +89,38 @@ export function hydrateSalesConfigs(deptConfigs) {
   Object.keys(DEPT_CONFIGS).forEach(function(k){ delete DEPT_CONFIGS[k]; });
   Object.assign(DEPT_CONFIGS, deptConfigs);
 }
+
+// The "base tier" for a single-choice config — picked by name where one is
+// obviously the baseline ("Standard", "Standard Kit", "Standard Chafers"...),
+// falling back to whichever option sorts first (every one of these catalogues
+// is authored low-tier-to-high-tier, e.g. "Buffet"/"Round Tables"/"No Carving"
+// as position one) for the few configs with no option actually named Standard.
+// Shared by ConfigsPanel (auto-fills this as the value the first time a
+// config is seen with nothing picked) and FunctionPlanPrintView (so the FP
+// print only calls out a dept config when it's actually been moved off this
+// baseline, instead of printing every event's standard tier as if it were
+// something sales chose).
+export function defaultOptForCfg(cfg) {
+  var list = cfg.type === 'ratio' ? (cfg.ratios || []) : (cfg.options || []);
+  if (list.length === 0) return null;
+  var nameOf = function(o){ return cfg.type === 'ratio' ? o.label : o.name; };
+  var std = list.find(function(o){ return /^standard/i.test(String(nameOf(o) || '').trim()); });
+  return std || list[0];
+}
+export function defaultValueForCfg(cfg) {
+  var opt = defaultOptForCfg(cfg);
+  if (!opt) return null;
+  return cfg.type === 'ratio' ? { ratio_id: opt.id, extras: 0 } : { selected_id: opt.id };
+}
+// True when `value` is exactly this config's standard/baseline tier (or
+// unset) — only meaningful for the single-choice types ConfigsPanel
+// auto-defaults (options/radio/ratio); count/multi_count/tags are never
+// auto-filled, so any saved value there was an actual sales choice.
+export function isDefaultConfigValue(cfg, value) {
+  if (cfg.type !== 'options' && cfg.type !== 'radio' && cfg.type !== 'ratio') return false;
+  if (value == null) return true;
+  var def = defaultValueForCfg(cfg);
+  if (!def) return false;
+  if (cfg.type === 'ratio') return value.ratio_id === def.ratio_id && (value.extras || 0) === 0;
+  return value.selected_id === def.selected_id;
+}

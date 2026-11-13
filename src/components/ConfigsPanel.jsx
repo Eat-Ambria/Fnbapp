@@ -11,7 +11,7 @@
 
 import { useState, useEffect } from "react";
 import { T } from '../data/translations.js';
-import { DEPT_CONFIGS, SALES_DEPT_MAP } from '../data/salesConfig.js';
+import { DEPT_CONFIGS, SALES_DEPT_MAP, defaultValueForCfg } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { K, type } from '../utils/theme.js';
 import { Icon, KToast } from './KitchenUI.jsx';
@@ -63,24 +63,6 @@ function optIcon(opt, fallback) {
   const hay = String((opt.id || "") + " " + (opt.name || "") + " " + (opt.desc || "")).toLowerCase();
   for (const [re, name] of OPT_ICONS) if (re.test(hay)) return name;
   return fallback;
-}
-
-// The "base tier" for a single-choice config — picked by name where one is
-// obviously the baseline ("Standard", "Standard Kit", "Standard Chafers"...),
-// falling back to whichever option sorts first (every one of these catalogues
-// is authored low-tier-to-high-tier, e.g. "Buffet"/"Round Tables"/"No Carving"
-// as position one) for the few configs with no option actually named Standard.
-function defaultOptForCfg(cfg) {
-  var list = cfg.type === 'ratio' ? (cfg.ratios || []) : (cfg.options || []);
-  if (list.length === 0) return null;
-  var nameOf = function(o){ return cfg.type === 'ratio' ? o.label : o.name; };
-  var std = list.find(function(o){ return /^standard/i.test(String(nameOf(o) || '').trim()); });
-  return std || list[0];
-}
-function defaultValueForCfg(cfg) {
-  var opt = defaultOptForCfg(cfg);
-  if (!opt) return null;
-  return cfg.type === 'ratio' ? { ratio_id: opt.id, extras: 0 } : { selected_id: opt.id };
 }
 
 // V88 — configTable/idField default to the proposal shape so existing callers
