@@ -183,6 +183,13 @@ export async function syncKitchenMenuMirror(event) {
   // a perfectly fine, simply-not-yet-touched menu.
   if (!event.event_items_initialized) return null;
   try {
+    // Guard against a not-yet-hydrated dish catalogue (getAllDishes() empty):
+    // every dish would wrongly resolve to "no recipe", and writing that as
+    // the new events.menu would silently wipe this event's whole Kitchen
+    // dish list. A real "nothing has a recipe" case is only possible when
+    // event_items itself is empty, which the early-return in
+    // getEventItemsByDept already keeps out of kitchenTracked.
+    if (!getAllDishes({ includeInactive: true }).length) return null;
     const byDept = await getEventItemsByDept(event);
     const kitNames = byDept.kitchenTracked || [];
     const current = Array.isArray(event.menu) ? event.menu : [];
@@ -212,6 +219,10 @@ export async function syncAllKitchenMenuMirrors(events) {
   const initialized = (events || []).filter(e => e && e.id && e.event_items_initialized);
   if (initialized.length === 0) return [];
   const ids = initialized.map(e => e.id);
+
+  // Guard against a not-yet-hydrated dish catalogue -- see
+  // syncKitchenMenuMirror's identical guard above for why.
+  if (!getAllDishes({ includeInactive: true }).length) return [];
 
   try {
     // Same ordering requirement getEventItemsByDept's comment above explains

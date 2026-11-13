@@ -483,6 +483,15 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // Kitchen Hub's entire production pipeline reads events.menu as a flat kitchen
   // dish list — keep it in perfect sync so nothing there needs to change.
   async function mirrorKitchenMenu(items) {
+    // Guard against a not-yet-hydrated dish catalogue: isKitchenTrackedDish
+    // would wrongly say "no recipe" for every single dish (allDishesByName
+    // empty), and writing that as the new events.menu would silently wipe
+    // Kitchen Hub's whole dish list for this event. A real "nothing selected
+    // has a recipe" case is only possible when items itself is empty.
+    if (items.length > 0 && Object.keys(allDishesByName).length === 0) {
+      console.error('[EventMenuBuilder] mirrorKitchenMenu: dish catalogue not loaded yet — skipping sync to avoid wiping events.menu');
+      return;
+    }
     var kitchenNames = items.filter(function(x){ return isKitchenTrackedDish(x.dish_name); }).map(function(x){ return x.dish_name; });
     try {
       var res = await supabase.from('events').update({ menu: kitchenNames }).eq('id', event.id);
