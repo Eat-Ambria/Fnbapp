@@ -83,6 +83,7 @@ export function useMenuItemGrouping(params) {
         section_id:      d.section_id || null,
         sort_in_section: (d.sort_in_section == null ? null : d.sort_in_section),
         is_veg:          d.is_veg,
+        hasRecipe:       !!d.hasRecipe,
       };
     });
   // eslint-disable-next-line

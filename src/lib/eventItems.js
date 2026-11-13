@@ -90,9 +90,18 @@ export function resolveDeptForDish(name, ctx) {
   return pinnedDeptForDish(name) || sectionOverrideDept[name] || dishNameToPkgDept[name] || catalogueDept || metaDeptByName[name] || DEFAULT_DEPT;
 }
 
-// Returns { kit:[names], bev:[names], bak:[names], frt:[names], svc:[names], crk:[names], trn:[names] }
+// Returns { kit:[names], bev:[names], bak:[names], frt:[names], svc:[names], crk:[names], trn:[names], kitchenTracked:[names] }
+// `kitchenTracked` is NOT "dept resolved to kit" — sales_dept (the "Proposal
+// builder tab" / Booked Function Items-tab dept a dish is filed under) only
+// ever decides which Ops/proposal tab a dish shows under, never whether
+// Kitchen actually tracks it. A dish Kitchen cooks (has a real SOP/recipe
+// mapping, see getAllDishes' hasRecipe) belongs in Kitchen Tracking and
+// events.menu regardless of which dept tab it's organized under elsewhere —
+// e.g. a dessert filed under the Bakery tab for proposal/ordering purposes
+// still has to show up in Kitchen's Event Day / Prep Day tabs if it's a
+// Kitchen-cooked SOP item.
 export async function getEventItemsByDept(event) {
-  const out = { kit: [], bev: [], bak: [], frt: [], svc: [], crk: [], trn: [] };
+  const out = { kit: [], bev: [], bak: [], frt: [], svc: [], crk: [], trn: [], kitchenTracked: [] };
   if (!event || !event.id) return out;
 
   // kitchen_tracking's per-function rows are keyed by this array's INDEX
@@ -141,6 +150,8 @@ export async function getEventItemsByDept(event) {
     const dept = resolveDeptForDish(it.dish_name, ctx);
     if (!out[dept]) out[dept] = [];
     out[dept].push(it.dish_name);
+    const d = allDishesByName[it.dish_name];
+    if (d && d.hasRecipe) out.kitchenTracked.push(it.dish_name);
   });
   return out;
 }
@@ -173,7 +184,7 @@ export async function syncKitchenMenuMirror(event) {
   if (!event.event_items_initialized) return null;
   try {
     const byDept = await getEventItemsByDept(event);
-    const kitNames = byDept.kit || [];
+    const kitNames = byDept.kitchenTracked || [];
     const current = Array.isArray(event.menu) ? event.menu : [];
     const same = kitNames.length === current.length && kitNames.every((n, i) => n === current[i]);
     if (same) return null;
@@ -203,25 +214,14 @@ export async function syncAllKitchenMenuMirrors(events) {
   const ids = initialized.map(e => e.id);
 
   try {
-    const [itemRows, sectionsRes, metaRes] = await Promise.all([
-      // Same ordering requirement getEventItemsByDept's comment above explains
-      // in full: kitchen_tracking keys a dish by array INDEX into events.menu,
-      // so an unordered result here can silently reassign one dish's recorded
-      // progress to a different dish the next time this batch mirror-sync runs.
-      fetchAllRows(() => supabase.from('event_items').select('event_id, dish_name').in('event_id', ids).order('ordering', { ascending: true })),
-      supabase.from('dish_catalogue_sections').select('id, sales_dept, parent_section_id'),
-      supabase.from('sales_items_meta').select('dish_name, sales_dept'),
-    ]);
+    // Same ordering requirement getEventItemsByDept's comment above explains
+    // in full: kitchen_tracking keys a dish by array INDEX into events.menu,
+    // so an unordered result here can silently reassign one dish's recorded
+    // progress to a different dish the next time this batch mirror-sync runs.
+    const itemRows = await fetchAllRows(() => supabase.from('event_items').select('event_id, dish_name').in('event_id', ids).order('ordering', { ascending: true }));
 
     const itemsByEvent = {};
     (itemRows || []).forEach(r => { (itemsByEvent[r.event_id] = itemsByEvent[r.event_id] || []).push(r.dish_name); });
-
-    const sectionsArr = sectionsRes.data || [];
-    const sectionSalesDeptMap = {};
-    sectionsArr.forEach(s => { sectionSalesDeptMap[s.id] = s.sales_dept || 'kit'; });
-
-    const metaDeptByName = {};
-    (metaRes.data || []).forEach(r => { metaDeptByName[r.dish_name] = r.sales_dept || DEFAULT_DEPT; });
 
     const allDishesByName = {};
     (getAllDishes({ includeInactive: true }) || []).forEach(d => { allDishesByName[d.dish_name] = d; });
@@ -229,9 +229,10 @@ export async function syncAllKitchenMenuMirrors(events) {
     const updates = [];
     initialized.forEach(event => {
       const items = itemsByEvent[event.id] || [];
-      const { dishNameToPkgDept, sectionOverrideDept } = buildEventDeptContext(event, sectionsArr);
-      const ctx = { allDishesByName, sectionSalesDeptMap, metaDeptByName, dishNameToPkgDept, sectionOverrideDept };
-      const kitNames = items.filter(name => resolveDeptForDish(name, ctx) === 'kit');
+      // Not a dept filter — see getEventItemsByDept's kitchenTracked comment
+      // above: sales_dept only routes proposal/Items-tab tabs, never decides
+      // what Kitchen actually tracks. A real SOP/recipe mapping does.
+      const kitNames = items.filter(name => { const d = allDishesByName[name]; return !!(d && d.hasRecipe); });
       const current = Array.isArray(event.menu) ? event.menu : [];
       const same = kitNames.length === current.length && kitNames.every((n, i) => n === current[i]);
       if (!same) updates.push({ id: event.id, menu: kitNames });

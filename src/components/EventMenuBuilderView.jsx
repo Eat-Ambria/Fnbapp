@@ -468,10 +468,22 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     });
   }
 
+  // Whether Kitchen actually tracks this dish (events.menu / Kitchen Hub's
+  // Event Day, Prep Day, Analytics...). NOT the same question as "what dept
+  // tab is it filed under" (effectiveDeptForDish, above) — sales_dept only
+  // ever routes which Proposal-builder / Items-tab tab a dish shows under; a
+  // dish Kitchen actually cooks (has a real SOP/recipe mapping) belongs in
+  // Kitchen Tracking regardless of which dept tab it's organized under there
+  // — e.g. a Bakery-tab dessert that's a genuine Kitchen-cooked SOP item.
+  function isKitchenTrackedDish(name) {
+    var d = allDishesByName[name];
+    return !!(d && d.hasRecipe);
+  }
+
   // Kitchen Hub's entire production pipeline reads events.menu as a flat kitchen
   // dish list — keep it in perfect sync so nothing there needs to change.
   async function mirrorKitchenMenu(items) {
-    var kitchenNames = items.filter(function(x){ return effectiveDeptForDish(x.dish_name) === 'kit'; }).map(function(x){ return x.dish_name; });
+    var kitchenNames = items.filter(function(x){ return isKitchenTrackedDish(x.dish_name); }).map(function(x){ return x.dish_name; });
     try {
       var res = await supabase.from('events').update({ menu: kitchenNames }).eq('id', event.id);
       if (res.error) throw res.error;
@@ -1110,11 +1122,10 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // ── Toggle dish: insert or delete in event_items, mirror kitchen dept to events.menu ──
   async function toggleDish(dishName) {
     if (blockIfMenuLocked()) return;
-    var dept = effectiveDeptForDish(dishName);
     try {
       var result = await menuItemOps.toggleDishItem(itemsOpsConfig, dishItems, dishName, !!templateSet[dishName], setDishItems);
       logFpHistory((result.action === 'added' ? T2('Added dish') : T2('Removed dish')) + ': ' + dishName);
-      if (dept === 'kit') await mirrorKitchenMenu(result.nextItems);
+      if (isKitchenTrackedDish(dishName)) await mirrorKitchenMenu(result.nextItems);
     } catch (e) {
       console.error('[EventMenuBuilder] toggle failed:', e);
       await loadItems().then(setDishItems);
@@ -1138,7 +1149,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       setDishLibBump(function(n){ return n + 1; });
       var result = await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
       logFpHistory(T2('Added dish') + ': ' + name);
-      if (effectiveDeptForDish(name) === 'kit') await mirrorKitchenMenu(result.nextItems);
+      if (isKitchenTrackedDish(name)) await mirrorKitchenMenu(result.nextItems);
       if (sectionId) await saveSectionOverride(name, sectionId);
     } catch (e) {
       // addDishItem only calls its onOptimistic setter AFTER a successful
@@ -1156,7 +1167,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     try {
       var result = await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
       logFpHistory(T2('Added dish') + ': ' + name);
-      if (effectiveDeptForDish(name) === 'kit') await mirrorKitchenMenu(result.nextItems);
+      if (isKitchenTrackedDish(name)) await mirrorKitchenMenu(result.nextItems);
       if (sectionId) await saveSectionOverride(name, sectionId);
     } catch (e) {
       console.error('[EventMenuBuilder] addExistingDish failed:', e);
@@ -1238,7 +1249,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     if (!window.confirm(confirmMsg)) return;
     try {
       var result = await menuItemOps.removeSectionItems(itemsOpsConfig, dishItems, names, setDishItems);
-      if (activeDept === 'kit') await mirrorKitchenMenu(result.nextItems);
+      if (names.some(isKitchenTrackedDish)) await mirrorKitchenMenu(result.nextItems);
       logFpHistory(T2('Removed section') + ': ' + grp.name + ' (' + names.length + ' ' + T2('dishes') + ')');
     } catch (e) {
       console.error('[EventMenuBuilder] removeWholeSection failed:', e);
