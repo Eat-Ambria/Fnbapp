@@ -348,7 +348,7 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
       // and "Load defaults" already follow; this was the one remaining path
       // that bypassed it (new/changed package -> event_items written here
       // directly, not through either of those).
-      const toAdd = (await filterAutoSeedable(newDishes)).filter(d=>!existingNames.has(d));
+      const toAdd = (await filterAutoSeedable(newDishes, nextPkgName)).filter(d=>!existingNames.has(d));
       if(toAdd.length){
         const insRows = toAdd.map((d,i)=>({event_id:eventId,dish_name:d,is_addon:false,ordering:remainingCount+i}));
         const {error:insErr} = await supabase.from('event_items').insert(insRows);

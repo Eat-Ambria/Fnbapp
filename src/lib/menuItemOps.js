@@ -26,6 +26,7 @@
 
 import { supabase } from './supabase.js';
 import { getAllDishes } from '../data/recipeData.js';
+import { MENU_PACKAGE_NO_AUTO_OVERRIDES } from '../data/menuPackages.js';
 
 // Dishes that should never be bulk-added as package "defaults" — the whole
 // point is that picking one is a deliberate choice, not a formality everyone
@@ -41,7 +42,13 @@ import { getAllDishes } from '../data/recipeData.js';
 // both MenuBuilderView.jsx and EventMenuBuilderView.jsx, and by
 // syncEventItemsOnPackageChange (Dashboard.jsx) when a package is first
 // assigned/switched on a booking.
-export async function filterAutoSeedable(dishNames) {
+//
+// `pkgName`, when passed, lets that ONE package override the catalogue
+// default for a specific dish (menu_packages.no_auto_select_overrides) —
+// e.g. a dish that's "pick 1 of a few" catalogue-wide can still be a plain
+// auto-add in a package that always wants it. See MENU_PACKAGE_NO_AUTO_OVERRIDES
+// (menuPackages.js). The override wins outright, in either direction.
+export async function filterAutoSeedable(dishNames, pkgName) {
   if (!dishNames || dishNames.length === 0) return dishNames || [];
   var secRes = await supabase.from('dish_catalogue_sections').select('id').eq('no_auto_select', true);
   var noAutoSectionIds = (!secRes.error && secRes.data) ? new Set(secRes.data.map(function(s){ return s.id; })) : new Set();
@@ -52,7 +59,9 @@ export async function filterAutoSeedable(dishNames) {
     if (d.section_id) sectionByDish[d.dish_name] = d.section_id;
     if (d.no_auto_select) dishNoAutoSelect[d.dish_name] = true;
   });
+  var overrides = (pkgName && MENU_PACKAGE_NO_AUTO_OVERRIDES[pkgName]) || {};
   return dishNames.filter(function(name){
+    if (Object.prototype.hasOwnProperty.call(overrides, name)) return !overrides[name];
     if (dishNoAutoSelect[name]) return false;
     var sid = sectionByDish[name];
     return !(sid && noAutoSectionIds.has(sid));

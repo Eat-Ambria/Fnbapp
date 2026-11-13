@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
+import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, MENU_PACKAGE_NO_AUTO_OVERRIDES } from '../data/menuPackages.js';
 import { detectPackageDiet } from '../utils/helpers.js';
 import { RECIPE_DB, createCustomDishInLibrary, getAllDishes } from '../data/recipeData.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS, pinnedDeptForDish } from '../data/salesConfig.js';
@@ -354,7 +354,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         // comment. Only applies to this fresh-from-package fallback, not to
         // an already-curated legacyMenu above (never strip an existing,
         // deliberate selection during a one-time migration).
-        seedNames = await menuItemOps.filterAutoSeedable(MENU_PACKAGES[pkgName] || []);
+        seedNames = await menuItemOps.filterAutoSeedable(MENU_PACKAGES[pkgName] || [], pkgName);
       }
     }
     if (seedNames.length === 0) {
@@ -991,8 +991,14 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     getAllDishes({ includeInactive: true }).forEach(function(d){
       if (d.no_auto_select || (d.section_id && noAutoIds.has(d.section_id))) out.add(d.dish_name);
     });
+    // This package's own overrides win outright over the catalogue default,
+    // in either direction — see MENU_PACKAGE_NO_AUTO_OVERRIDES (menuPackages.js).
+    var overrides = (templateInfo.name && MENU_PACKAGE_NO_AUTO_OVERRIDES[templateInfo.name]) || {};
+    Object.keys(overrides).forEach(function(name){
+      if (overrides[name]) out.add(name); else out.delete(name);
+    });
     return out;
-  }, [sections, dishLibBump]);
+  }, [sections, dishLibBump, templateInfo.name, pkgVer]);
 
   // A whole catalogue section added ad hoc for this event (via "Add section
   // from library", including a brand-new section created on the spot) isn't
@@ -1283,7 +1289,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     if (!event || !event.id || templateInfo.dishes.length === 0 || seeding) return;
     setSeeding(true);
     try {
-      var seedDishes = await menuItemOps.filterAutoSeedable(templateInfo.dishes);
+      var seedDishes = await menuItemOps.filterAutoSeedable(templateInfo.dishes, templateInfo.name);
       var result = await menuItemOps.loadPackageDefaultItems(itemsOpsConfig, dishItems, seedDishes, setDishItems);
       if (result.added.length === 0) { alert(T2('All package dishes are already selected.')); return; }
       await mirrorKitchenMenu(result.nextItems);

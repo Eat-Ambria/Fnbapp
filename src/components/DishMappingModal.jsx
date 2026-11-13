@@ -23,7 +23,7 @@ import {
   setPackageSections, getCatIdForDish, getExplicitCatIdForDish, deactivateDish, upsertDishCat,
   DISH_MASTER, upsertDishMaster,
 } from '../data/recipeData.js';
-import { MENU_PACKAGES } from '../data/menuPackages.js';
+import { MENU_PACKAGES, getNoAutoSelectOverride, setNoAutoSelectOverride } from '../data/menuPackages.js';
 import { supabase } from '../lib/supabase.js';
 import { getCateringStoreItemsCached, opsSupabase } from '../lib/opsSupabase.js';
 import { transliterateName } from '../utils/helpers.js';
@@ -36,6 +36,11 @@ function DishMappingModal(props) {
   var onChange        = props.onChange || function() {};
   var onJumpToPackage = props.onJumpToPackage || function() {};
   var allowDeactivate = props.allowDeactivate !== false; // default true
+  // Set only when this modal is opened from inside a specific package's own
+  // section editor (MenuPackagesView.jsx) — lets that one package override
+  // the catalogue-wide "Don't auto-select by default" default below, instead
+  // of only ever being able to change it everywhere at once.
+  var pkgName          = props.pkgName || '';
   var T2              = function(s) { return T(s, lang); };
   var isAdmin         = currentUser && (currentUser.role === 'admin' || currentUser.role === 'headchef');
 
@@ -56,6 +61,9 @@ function DishMappingModal(props) {
 
   var [noAutoBuf, setNoAutoBuf]         = useState(false); // dishes_master.no_auto_select
   var [altGroupBuf, setAltGroupBuf]     = useState('');    // dishes_master.alt_group
+  // 'default' | 'always' | 'never' — this package's own override of the
+  // catalogue no_auto_select setting above, or 'default' to defer to it.
+  var [pkgOverrideBuf, setPkgOverrideBuf] = useState('default');
 
   var [bump, setBump]                   = useState(0); // internal re-render trigger
 
@@ -108,8 +116,10 @@ function DishMappingModal(props) {
     var row = DISH_MASTER[dishName];
     setNoAutoBuf(!!(row && row.no_auto_select));
     setAltGroupBuf((row && row.alt_group) || '');
+    var ov = pkgName ? getNoAutoSelectOverride(pkgName, dishName) : undefined;
+    setPkgOverrideBuf(ov === undefined ? 'default' : (ov ? 'never' : 'always'));
     // eslint-disable-next-line
-  }, [dishName]);
+  }, [dishName, pkgName]);
 
   // Escape key to close
   useEffect(function() {
@@ -240,6 +250,23 @@ function DishMappingModal(props) {
       upsertDishMaster(dishName, { no_auto_select: next });
       notify();
     } catch (e) { setNoAutoBuf(!next); alert('Save failed: ' + e.message); }
+    finally { setSaving(''); }
+  }
+
+  // This package's own override of the catalogue "Don't auto-select by
+  // default" setting above — e.g. a dish that's a pick-one-of-a-few
+  // catalogue-wide can still be a plain auto-add in a specific package.
+  // next: 'default' (clear override) | 'always' | 'never'.
+  async function savePkgOverride(next) {
+    if (!dishName || !pkgName) return;
+    var prev = pkgOverrideBuf;
+    setPkgOverrideBuf(next);
+    setSaving('pkgoverride');
+    try {
+      var value = next === 'default' ? null : (next === 'never');
+      await setNoAutoSelectOverride(pkgName, dishName, value);
+      notify();
+    } catch (e) { setPkgOverrideBuf(prev); alert('Save failed: ' + e.message); }
     finally { setSaving(''); }
   }
 
@@ -543,6 +570,37 @@ function DishMappingModal(props) {
           <div style={{ fontSize: 10, color: C.faint, marginTop: 3, marginLeft: 23 }}>
             {T2('Shows as an option when building the menu, but is never bulk-added when the package is first assigned or "Load defaults" is used — for a choice between a couple of dishes inside this section.')}
           </div>
+
+          {/* Package-specific override — the checkbox above is catalogue-wide
+              (every package that uses this dish), which doesn't fit a dish
+              that should auto-select in some packages but not others. Only
+              shown when this modal was opened from inside a package's own
+              section editor, where there's an actual package to scope it to. */}
+          {pkgName && (
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid ' + C.borderLight }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4 }}>
+                {T2('Within this package')} ({pkgName})
+              </div>
+              <div style={{ display: 'flex', gap: 4, background: C.surface, borderRadius: 6, padding: 3, width: 'fit-content', border: '1px solid ' + C.borderLight }}>
+                <button onClick={function() { if (isAdmin) savePkgOverride('default'); }} disabled={!isAdmin || !!saving}
+                  style={{ padding: '5px 12px', borderRadius: 4, background: pkgOverrideBuf === 'default' ? '#3B6D11' : 'transparent', color: pkgOverrideBuf === 'default' ? '#fff' : C.muted, border: 'none', fontSize: 11.5, fontWeight: 600, cursor: isAdmin ? 'pointer' : 'default' }}>
+                  {T2('Use catalogue default')}
+                </button>
+                <button onClick={function() { if (isAdmin) savePkgOverride('always'); }} disabled={!isAdmin || !!saving}
+                  style={{ padding: '5px 12px', borderRadius: 4, background: pkgOverrideBuf === 'always' ? '#3B6D11' : 'transparent', color: pkgOverrideBuf === 'always' ? '#fff' : C.muted, border: 'none', fontSize: 11.5, fontWeight: 600, cursor: isAdmin ? 'pointer' : 'default' }}>
+                  {T2('Always auto-select here')}
+                </button>
+                <button onClick={function() { if (isAdmin) savePkgOverride('never'); }} disabled={!isAdmin || !!saving}
+                  style={{ padding: '5px 12px', borderRadius: 4, background: pkgOverrideBuf === 'never' ? '#3B6D11' : 'transparent', color: pkgOverrideBuf === 'never' ? '#fff' : C.muted, border: 'none', fontSize: 11.5, fontWeight: 600, cursor: isAdmin ? 'pointer' : 'default' }}>
+                  {T2('Never auto-select here')}
+                </button>
+              </div>
+              <div style={{ fontSize: 10, color: C.faint, marginTop: 4 }}>
+                {T2('Overrides the catalogue setting above, only for this one package — other packages using this dish are unaffected.')}
+              </div>
+            </div>
+          )}
+
           <div style={{ marginTop: 10 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4 }}>{T2('Alternative group')}</div>
             <div style={{ display: 'flex', gap: 6 }}>

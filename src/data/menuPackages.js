@@ -23,6 +23,16 @@ let MENU_PACKAGE_SECTIONS = {};
 // Shape: { [pkgName]: { tier: 'luxury'|'magnum'|null, id: string|null } }
 let MENU_PACKAGE_META = {};
 
+// Per-package override of dishes_master.no_auto_select / dish_catalogue_sections.no_auto_select
+// (both catalogue-wide). A dish that's "pick 1 of a few" in one package can
+// be a plain auto-add in another, so this lets one package override the
+// catalogue default for specific dishes without changing it everywhere else.
+// Shape: { [pkgName]: { [dishName]: true | false } } — true = never
+// auto-select here regardless of the catalogue default, false = always
+// auto-select here regardless of the catalogue default, absent = fall back
+// to the catalogue default. Hydrated from menu_packages.no_auto_select_overrides.
+let MENU_PACKAGE_NO_AUTO_OVERRIDES = {};
+
 // True from the first real hydrateMenuPackageSections() call onward (boot's
 // own call included) — lets a consumer tell "this package genuinely has no
 // custom sections" apart from "sections haven't loaded yet", which an empty
@@ -88,6 +98,39 @@ function hydrateMenuPackageSections(sectionsMap) {
   notifyMenuPackagesRefreshed();
 }
 
+// Populate MENU_PACKAGE_NO_AUTO_OVERRIDES from a { [pkgName]: { [dishName]: bool } }
+// map. Overwrites the entire map (last write wins) — same pattern as the
+// sections overlay above.
+function hydrateMenuPackageNoAutoOverrides(overridesMap) {
+  if (!overridesMap || typeof overridesMap !== 'object') return;
+  Object.keys(MENU_PACKAGE_NO_AUTO_OVERRIDES).forEach(k => delete MENU_PACKAGE_NO_AUTO_OVERRIDES[k]);
+  Object.assign(MENU_PACKAGE_NO_AUTO_OVERRIDES, overridesMap);
+  notifyMenuPackagesRefreshed();
+}
+
+// undefined = no override set for this dish in this package (caller should
+// fall back to the catalogue default); true/false = the package's explicit
+// override, which wins outright over the catalogue default either way.
+function getNoAutoSelectOverride(pkgName, dishName) {
+  var m = pkgName && MENU_PACKAGE_NO_AUTO_OVERRIDES[pkgName];
+  if (!m || !Object.prototype.hasOwnProperty.call(m, dishName)) return undefined;
+  return !!m[dishName];
+}
+
+// value: true (never auto-select here) | false (always auto-select here) |
+// null (clear the override, fall back to the catalogue default).
+async function setNoAutoSelectOverride(pkgName, dishName, value) {
+  if (!pkgName || !dishName) return;
+  var current = MENU_PACKAGE_NO_AUTO_OVERRIDES[pkgName] || {};
+  var next = Object.assign({}, current);
+  if (value === null) { delete next[dishName]; } else { next[dishName] = !!value; }
+  var res = await supabase.from('menu_packages').update({ no_auto_select_overrides: next }).eq('name', pkgName);
+  if (res.error) throw res.error;
+  var wholeMap = Object.assign({}, MENU_PACKAGE_NO_AUTO_OVERRIDES);
+  wholeMap[pkgName] = next;
+  hydrateMenuPackageNoAutoOverrides(wholeMap);
+}
+
 // V74 — Re-fetch menu_packages from Supabase and re-hydrate the in-memory maps
 // including the sections overlay — hydrateMenuPackages/hydrateMenuPackageSections
 // each fire 'ambria:menu-packages-refreshed' on window themselves so React
@@ -103,6 +146,7 @@ async function refreshMenuPackages() {
     const groups = {};
     const meta   = {};
     const sections = {};
+    const noAutoOverrides = {};
     rows.forEach(r => {
       pkgMap[r.name] = typeof r.dishes === 'string' ? JSON.parse(r.dishes || '[]') : (r.dishes || []);
       groups[r.name] = typeof r.dish_groups === 'string' ? JSON.parse(r.dish_groups || '{}') : (r.dish_groups || {});
@@ -112,9 +156,15 @@ async function refreshMenuPackages() {
           sections[r.name] = typeof r.sections === 'string' ? JSON.parse(r.sections) : r.sections;
         } catch(e) { console.warn('[menuPackages] sections parse failed for', r.name, e); }
       }
+      if (r.no_auto_select_overrides != null) {
+        try {
+          noAutoOverrides[r.name] = typeof r.no_auto_select_overrides === 'string' ? JSON.parse(r.no_auto_select_overrides) : r.no_auto_select_overrides;
+        } catch(e) { console.warn('[menuPackages] no_auto_select_overrides parse failed for', r.name, e); }
+      }
     });
     hydrateMenuPackages(pkgMap, groups, meta);
     hydrateMenuPackageSections(sections);
+    hydrateMenuPackageNoAutoOverrides(noAutoOverrides);
     return true;
   } catch (e) {
     console.warn('[menuPackages] refresh err:', e);
@@ -153,8 +203,12 @@ export {
   DISH_GROUPS,
   MENU_PACKAGE_SECTIONS,
   MENU_PACKAGE_META,
+  MENU_PACKAGE_NO_AUTO_OVERRIDES,
   hydrateMenuPackages,
   hydrateMenuPackageSections,
+  hydrateMenuPackageNoAutoOverrides,
+  getNoAutoSelectOverride,
+  setNoAutoSelectOverride,
   isMenuPackageSectionsHydrated,
   refreshMenuPackages,
   describeEventMenu

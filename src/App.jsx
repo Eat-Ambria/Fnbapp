@@ -10,7 +10,7 @@ import { getQueueSize, replayQueue, getLostWriteCount, clearLostWriteCount } fro
 
 // Data
 import { C, hydrateConstants } from './data/constants.js';
-import { MENU_PACKAGES, hydrateMenuPackages, hydrateMenuPackageSections, refreshMenuPackages } from './data/menuPackages.js';
+import { MENU_PACKAGES, hydrateMenuPackages, hydrateMenuPackageSections, hydrateMenuPackageNoAutoOverrides, refreshMenuPackages } from './data/menuPackages.js';
 import { hydrateSalesConfigs } from './data/salesConfig.js';
 import { EMPLOYEE_DB_INIT, hydrateStaffData } from './data/staffData.js';
 import { hydrateRecipeData, subscribeRecipeRealtime, subscribeDishMetaRealtime, RECIPE_DB } from './data/recipeData.js';
@@ -682,6 +682,7 @@ export default function App() {
         hydrateConstants(cfg);
         hydrateMenuPackages(cfg.menuPackages, cfg.dishGroups, cfg.menuPackageMeta);
         hydrateMenuPackageSections(cfg.menuSections);
+        hydrateMenuPackageNoAutoOverrides(cfg.menuNoAutoOverrides);
         hydrateSalesConfigs(cfg.salesConfigs);
         hydrateStaffData({ groomingChecks: (cfg.checklists || {}).grooming || [], homeVenues: cfg.homeVenues });
         hydratePermissions(cfg.roleDefinitions);

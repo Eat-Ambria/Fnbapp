@@ -237,7 +237,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     try {
       // Soup-Station-style "pick any 2-3 of these 8-10" sections never get
       // auto-seeded — see filterAutoSeedable's own comment.
-      var seedDishes = await menuItemOps.filterAutoSeedable(templateInfo.dishes);
+      var seedDishes = await menuItemOps.filterAutoSeedable(templateInfo.dishes, templateInfo.name);
       var rows = seedDishes.map(function(d, i){
         return { proposal_id: proposal.id, dish_name: d, is_addon: false, ordering: i };
       });
@@ -384,7 +384,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     if (!proposal || !proposal.id || templateInfo.dishes.length === 0 || seeding) return;
     setSeeding(true);
     try {
-      var seedDishes = await menuItemOps.filterAutoSeedable(templateInfo.dishes);
+      var seedDishes = await menuItemOps.filterAutoSeedable(templateInfo.dishes, templateInfo.name);
       var result = await menuItemOps.loadPackageDefaultItems(itemsOpsConfig, dishItems, seedDishes, setDishItems);
       if (result.added.length === 0) say('ok', T2('Nothing to load'), T2('Every dish in this package is already selected.'));
     } catch (e) {
