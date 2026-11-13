@@ -90,6 +90,24 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   var selectedSet = new Set(selected.map(function(s) { return s.toLowerCase().trim(); }));
   var q = search.toLowerCase().trim();
 
+  // Beverage/Fruit dishes (the event's real picks, from event_items via
+  // bevFrtByDept) are folded into the SAME section grouping as Kitchen's own
+  // `selected` for DISPLAY purposes, so "Build Menu" shows the whole menu in
+  // its real package-section order (e.g. Refreshing Station's drinks sitting
+  // where they belong, not hidden or dumped in a separate block at the
+  // bottom) — but they stay read-only here (no add/remove/recat/outsource):
+  // this editor still only ever WRITES events.menu, Kitchen's own list: see
+  // addDish() below, and events.menu/Kitchen Tracking are deliberately
+  // Kitchen-only (Beverage/Fruit keep their own Ops screens there).
+  var bevFrtNames = bevFrtByDept ? (bevFrtByDept.bev || []).concat(bevFrtByDept.frt || []) : [];
+  var readOnlyNameSet = new Set(bevFrtNames);
+  var displayNames = (function(){
+    var seen = new Set();
+    var out = [];
+    selected.concat(bevFrtNames).forEach(function(n){ if (!seen.has(n)) { seen.add(n); out.push(n); } });
+    return out;
+  })();
+
   // This editor writes straight to events.menu, Kitchen Hub's OWN flat dish
   // list — Beverages and Fruits are tracked separately (event_items, via each
   // dept's own Ops tab / the Items tab in Booked Functions). They're shown
@@ -128,7 +146,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   // now land in one shared, clearly-labelled Extras bucket instead — same
   // "explicit tag or Extras" rule the package-linked branch below already uses.
   var selByCat = {};
-  selected.forEach(function(name) {
+  displayNames.forEach(function(name) {
     var explicit = getExplicitCatIdForDish(name);
     var catId = isRealCatId(explicit) ? explicit : "__extras__";
     if (!selByCat[catId]) selByCat[catId] = [];
@@ -174,7 +192,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
     });
     var bySecId = {};
     var extras = [];
-    selected.forEach(function(name) {
+    displayNames.forEach(function(name) {
       var secId = dishToNativeSection[name] || sectionOverrides[name] || null;
       if (secId) { if (!bySecId[secId]) bySecId[secId] = []; bySecId[secId].push(name); }
       else extras.push(name);
@@ -204,15 +222,6 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
         var isExtras = catId === '__extras__';
         return { id: catId, label: isExtras ? T2('Extras') : catName(catId), icon: isExtras ? '✨' : catIcon(catId), names: entry[1], isExtras: isExtras };
       });
-
-  // Append the event's real Beverage/Fruit picks (event_items, via
-  // getEventItemsByDept) as read-only groups — shown for visibility since
-  // this editor can't write them, so sales can see the full menu in one
-  // place without this screen pretending it owns those dishes.
-  if (bevFrtByDept) {
-    if (bevFrtByDept.bev.length > 0) selGroups = selGroups.concat([{ id: '__bev__', label: T2('Beverage') + ' (' + T2('Items tab') + ')', icon: '🥤', names: bevFrtByDept.bev, isExtras: false, isReadOnly: true }]);
-    if (bevFrtByDept.frt.length > 0) selGroups = selGroups.concat([{ id: '__frt__', label: T2('Fruits') + ' (' + T2('Items tab') + ')', icon: '🍎', names: bevFrtByDept.frt, isExtras: false, isReadOnly: true }]);
-  }
 
   // V89 — reassign a dish's EXPLICIT SOP category right from the Selected
   // menu list, so a fuzzy-guess miss (or a dish with no tag at all, sitting
@@ -505,7 +514,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
         <div style={{ ...COL, flex: 1, borderColor: C.green }}>
           <div style={{ ...COLHEAD, background: C.greenBg, color: C.green }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>✅ {T2("Selected menu")} ({selected.length})</span>
+              <span>✅ {T2("Selected menu")} ({displayNames.length})</span>
               {selected.length > 0 && !locked && (
                 <button onClick={function() { setPendingDestructive({ kind: 'clear', count: 0 }); }}
                   style={{ padding: "3px 10px", borderRadius: 8, fontSize: 10, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, cursor: "pointer", fontWeight: 600 }}>{T2("Clear all")}</button>
@@ -516,10 +525,10 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
               style={{ width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid " + C.greenBorder, fontSize: 12, color: C.text, background: C.surface, boxSizing: "border-box", marginTop: 8 }} />
           </div>
           <div style={COLBODY}>
-            {selected.length === 0 && !sectionsLoading && (
+            {displayNames.length === 0 && !sectionsLoading && (
               <div style={{ textAlign: "center", padding: 24, color: C.muted, fontSize: 12 }}>{T2("No dishes selected")}<br /><span style={{ fontSize: 11 }}>{T2("Click + on the left to add")}</span></div>
             )}
-            {sectionsLoading && selected.length > 0 && (
+            {sectionsLoading && displayNames.length > 0 && (
               <div style={{ textAlign: "center", padding: 24, color: C.muted, fontSize: 12 }}>{T2("Loading menu sections…")}</div>
             )}
             {!sectionsLoading && (function() {
@@ -527,7 +536,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
               var filteredGroups = q2
                 ? selGroups.map(function(g) { return { ...g, names: g.names.filter(function(n) { return n.toLowerCase().includes(q2); }) }; }).filter(function(g) { return g.names.length > 0; })
                 : selGroups;
-              if (selected.length > 0 && q2 && filteredGroups.length === 0) {
+              if (displayNames.length > 0 && q2 && filteredGroups.length === 0) {
                 return <div style={{ textAlign: "center", padding: 24, color: C.muted, fontSize: 12 }}>{T2("No matches")}</div>;
               }
               return filteredGroups.map(function(g) {
@@ -535,19 +544,23 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
               return (
                 <div key={g.id}>
                   <div onClick={function() { setOpenSelCats(function(p) { return { ...p, [g.id]: p[g.id] === false ? true : false }; }); }}
-                    style={{ ...SECHEAD, color: g.isReadOnly ? C.muted : C.green, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: "1px solid " + C.borderLight, userSelect: "none" }}>
+                    style={{ ...SECHEAD, color: C.green, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: "1px solid " + C.borderLight, userSelect: "none" }}>
                     <span>{g.icon} {g.label} ({g.names.length})</span>
-                    <span style={{ fontSize: 12, color: g.isReadOnly ? C.muted : C.green, transform: isOpen2 ? "rotate(180deg)" : "none", transition: "transform .2s" }}>▼</span>
+                    <span style={{ fontSize: 12, color: C.green, transform: isOpen2 ? "rotate(180deg)" : "none", transition: "transform .2s" }}>▼</span>
                   </div>
-                  {isOpen2 && g.isReadOnly && g.names.map(function(name) {
-                    return (
-                      <div key={name} style={{ ...ROW, color: C.muted, cursor: "default" }}>
-                        <span style={{ flex: 1 }}>{name}</span>
-                        <span style={{ fontSize: 9.5, color: C.faint, flexShrink: 0 }}>🔒 {T2('read-only')}</span>
-                      </div>
-                    );
-                  })}
-                  {isOpen2 && !g.isReadOnly && g.names.map(function(name) {
+                  {isOpen2 && g.names.map(function(name) {
+                    // Beverage/Fruit dishes sit in their real package section
+                    // alongside Kitchen's own, but stay read-only — this
+                    // editor still only ever writes events.menu (Kitchen's
+                    // list); their actual home is the Items tab.
+                    if (readOnlyNameSet.has(name)) {
+                      return (
+                        <div key={name} style={{ ...ROW, color: C.muted, cursor: "default" }}>
+                          <span style={{ flex: 1 }}>{name}</span>
+                          <span style={{ fontSize: 9.5, color: C.faint, flexShrink: 0 }}>🔒 {T2('read-only')} — {T2('Items tab')}</span>
+                        </div>
+                      );
+                    }
                     var explicitCatRaw = getExplicitCatIdForDish(name);
                     var explicitCat = isRealCatId(explicitCatRaw) ? explicitCatRaw : '';
                     var isOut = outsourcedSet.has(name);
@@ -586,7 +599,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
           </div>
 
           {/* Section/category summary strip */}
-          {selected.length > 0 && (
+          {displayNames.length > 0 && (
             <div style={{ padding: "8px 14px", borderTop: "1px solid " + C.greenBorder, background: C.greenBg, display: "flex", gap: 8, flexWrap: "wrap" }}>
               {selGroups.map(function(g) {
                 return <span key={g.id} style={{ fontSize: 10, color: C.green }}>{g.icon} {g.label}: {g.names.length}</span>;
