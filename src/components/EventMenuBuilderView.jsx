@@ -225,11 +225,19 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   }, [event, pkgVer, pkgNameIndex]);
 
   // A veg-base event has no business surfacing non-veg add-ons by default —
-  // default the diet filter to the function's own diet (still overridable via
-  // the filter chips, e.g. to add a paid non-veg live counter to a veg wedding).
+  // default the diet filter to 'veg' for one (still overridable via the
+  // filter chips, e.g. to add a paid non-veg live counter to a veg wedding).
+  // A non-veg event is NOT the mirror case: in this catering domain "Non-Veg"
+  // means the event's menu is ALLOWED to include non-veg dishes, not that it
+  // excludes veg ones — a non-veg function's menu is overwhelmingly veg plus
+  // a handful of non-veg dishes. Auto-filtering to 'nonveg' used to hide
+  // every not-yet-selected veg dish in a catalogue-linked section (a Chaat
+  // Station with 30 veg + 1 non-veg dish showed only the 1, plus whatever was
+  // already selected), which looked like a broken/empty section rather than
+  // what it actually was: a filter silently narrowing the browse pool.
   useEffect(function(){
-    if (templateInfo.diet === 'veg' || templateInfo.diet === 'nonveg') {
-      setDietFilter(templateInfo.diet);
+    if (templateInfo.diet === 'veg') {
+      setDietFilter('veg');
     }
   // eslint-disable-next-line
   }, [templateInfo.name]);

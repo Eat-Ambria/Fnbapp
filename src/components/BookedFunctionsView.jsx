@@ -41,7 +41,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   var [fTo, setFTo]             = useState('');
   var [fVenue, setFVenue]       = useState('');
   var [fMadeBy, setFMadeBy]     = useState('');
-  var [fFpStatus, setFFpStatus] = useState(''); // '' | 'none' | 'made' | 'locked'
+  var [fFpStatus, setFFpStatus] = useState(''); // '' | 'none' | 'made' | 'locked' | 'sent'
   var [fPackage, setFPackage]   = useState('');
   // null = the default upcoming-first date order; clicking a header switches
   // to sorting by that column, clicking it again flips asc/desc.
@@ -51,7 +51,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
     if (sortKey === key) setSortDir(function(d){ return -d; });
     else { setSortKey(key); setSortDir(1); }
   }
-  var FP_RANK = { none: 0, made: 1, locked: 2 };
+  var FP_RANK = { none: 0, made: 1, locked: 2, sent: 3 };
   var [menuBuilderEvent, setMenuBuilderEvent] = useState(null);
   var [menuBuilderTab, setMenuBuilderTab]     = useState('items');
   var [fpMap, setFpMap]         = useState({}); // event_id -> {locked, locked_by}
@@ -133,10 +133,17 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // not created (no row yet) → made, editable → locked/finalized
+  // not created (no row yet) → made, editable → locked (frozen, not yet sent)
+  // → sent to kitchen (Mark Final). "Lock" alone freezes editing without
+  // notifying Kitchen; only "Mark Final" sets sent_to_kitchen — so a locked
+  // FP is NOT necessarily one Kitchen has actually seen. These used to share
+  // one "Locked" bucket, which made it impossible to tell "drafted and
+  // frozen for review" apart from "actually released to Kitchen" from this
+  // list alone.
   function fpStatusFor(ev) {
     var row = fpMap[ev.id];
     if (!row) return { key: 'none', label: T2('Not made'), color: C.muted, bg: C.bg, border: C.border };
+    if (row.sent_to_kitchen) return { key: 'sent', label: T2('Sent to Kitchen'), color: C.blue, bg: C.blueBg, border: C.blueBorder };
     if (row.locked) return { key: 'locked', label: T2('Locked'), color: C.green, bg: C.greenBg, border: C.greenBorder };
     return { key: 'made', label: T2('Made'), color: C.amber, bg: C.amberBg, border: C.amberBorder };
   }
@@ -318,6 +325,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
           <option value="none">{T2("Not made")}</option>
           <option value="made">{T2("Made")}</option>
           <option value="locked">{T2("Locked")}</option>
+          <option value="sent">{T2("Sent to Kitchen")}</option>
         </select>
         <select value={fPackage} onChange={function(e){ setFPackage(e.target.value); }}
           style={{ padding: "7px 9px", borderRadius: 7, border: "1px solid " + (fPackage ? C.gold : C.border), background: C.surface, fontSize: 12.5, color: C.text, maxWidth: 200 }}>

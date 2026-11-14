@@ -93,11 +93,17 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   }, [proposal, pkgIdToName, pkgVer]);
 
   // A veg-base proposal has no business surfacing non-veg add-ons by default —
-  // default the diet filter to the package's own diet (still overridable via
-  // the filter chips, e.g. to add a paid non-veg live counter to a veg wedding).
+  // default the diet filter to 'veg' for one (still overridable via the
+  // filter chips, e.g. to add a paid non-veg live counter to a veg wedding).
+  // A non-veg proposal is NOT the mirror case — see the identical comment in
+  // EventMenuBuilderView.jsx. Worse here specifically: this screen's diet
+  // chips are currently commented out (see the "Diet chips — hidden, not
+  // deleted" block below), so a non-veg package used to silently filter the
+  // whole catalogue-linked browse pool down to just its non-veg dishes with
+  // NO visible control left to switch it back to All.
   useEffect(function(){
-    if (templateInfo.diet === 'veg' || templateInfo.diet === 'nonveg') {
-      setDietFilter(templateInfo.diet);
+    if (templateInfo.diet === 'veg') {
+      setDietFilter('veg');
     }
   // eslint-disable-next-line
   }, [templateInfo.name]);
