@@ -54,7 +54,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   var FP_RANK = { none: 0, made: 1, locked: 2, sent: 3 };
   var [menuBuilderEvent, setMenuBuilderEvent] = useState(null);
   var [menuBuilderTab, setMenuBuilderTab]     = useState('items');
-  var [fpMap, setFpMap]         = useState({}); // event_id -> {locked, locked_by}
+  var [fpMap, setFpMap]         = useState({}); // event_id -> {locked, locked_by, sent_to_kitchen}
 
   // Only admins may open the Menu Builder from here — Head Chef (and
   // everyone else) can still view this list and jump into the Function
@@ -91,10 +91,10 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   async function loadFpStatuses() {
     try {
       var rows = await fetchAllRows(function(){
-        return supabase.from('event_function_plans').select('event_id, locked, locked_by, created_by, chef_ack_by, chef_ack_at');
+        return supabase.from('event_function_plans').select('event_id, locked, locked_by, sent_to_kitchen, created_by, chef_ack_by, chef_ack_at');
       });
       var map = {};
-      (rows || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked, locked_by: r.locked_by || '', created_by: r.created_by || '', chef_ack_by: r.chef_ack_by || '', chef_ack_at: r.chef_ack_at || '' }; });
+      (rows || []).forEach(function(r){ map[r.event_id] = { locked: !!r.locked, locked_by: r.locked_by || '', sent_to_kitchen: !!r.sent_to_kitchen, created_by: r.created_by || '', chef_ack_by: r.chef_ack_by || '', chef_ack_at: r.chef_ack_at || '' }; });
       setFpMap(map);
     } catch (e) {
       console.error('[BookedFunctions] loadFpStatuses failed:', e);
