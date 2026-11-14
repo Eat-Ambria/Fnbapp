@@ -563,26 +563,28 @@ export function useMenuItemGrouping(params) {
       return pinned.concat(rest);
     }
 
-    var out = [];
-    pkgSecs.forEach(function(sec){
-      if ((sec.sales_dept || 'kit') !== activeDept) return; // this section is assigned to a different dept tab
-      var pkgDishNames = (sec.dishes || []).filter(Boolean);
-      var directCatDishes = sec.catalogue_section_id ? byCatSectionId[sec.catalogue_section_id] : null;
+    // Resolves one section-LIKE object's own dish list — shared by a
+    // top-level package section and a package subsection (see "subsections"
+    // below), since either can independently link to a catalogue section and
+    // pool its full catalogue (package dishes pinned first), or just fall
+    // back to its own package dish list. `labelSec` only supplies name/
+    // sop_category for display/synthesis — never read for dept routing.
+    function resolveOwnDishes(ownDishes, catalogueSectionId, labelSec) {
+      var pkgDishNames = (ownDishes || []).filter(Boolean);
+      var directCatDishes = catalogueSectionId ? byCatSectionId[catalogueSectionId] : null;
       // The linked catalogue section may itself have subsections (Dish
       // Library → Sections), each holding its own slice of the full catalogue
       // list. Pool ALL of them, grouped by subsection, instead of only
       // whatever's directly on the parent row — otherwise a fully-
       // subsectioned catalogue section (0 dishes of its own) resolves to
       // nothing to browse at all.
-      var catSubs = sec.catalogue_section_id ? (catSubsByParent[sec.catalogue_section_id] || []) : [];
-
-      var list;
-      var subGroups = null;
+      var catSubs = catalogueSectionId ? (catSubsByParent[catalogueSectionId] || []) : [];
+      var list, subGroups = null;
       if (catSubs.length > 0) {
         subGroups = [];
         var allCatDishes = (directCatDishes || []).slice();
         if (directCatDishes && directCatDishes.length > 0) {
-          subGroups.push({ id: sec.catalogue_section_id, name: sec.name, dishes: pinnedRest(directCatDishes, pkgDishNames) });
+          subGroups.push({ id: catalogueSectionId, name: labelSec.name, dishes: pinnedRest(directCatDishes, pkgDishNames) });
         }
         catSubs.forEach(function(sub){
           var subDishes = byCatSectionId[sub.id] || [];
@@ -592,8 +594,8 @@ export function useMenuItemGrouping(params) {
         });
         var foundInSubs = {};
         allCatDishes.forEach(function(d){ foundInSubs[d.name] = true; });
-        var missingFromSubs = pkgDishNames.filter(function(n){ return !foundInSubs[n]; }).map(function(n){ return resolveOrSynth(n, sec); });
-        if (missingFromSubs.length > 0) subGroups.unshift({ id: sec.id + '__unplaced', name: T2('Other'), dishes: missingFromSubs });
+        var missingFromSubs = pkgDishNames.filter(function(n){ return !foundInSubs[n]; }).map(function(n){ return resolveOrSynth(n, labelSec); });
+        if (missingFromSubs.length > 0) subGroups.unshift({ id: labelSec.id + '__unplaced', name: T2('Other'), dishes: missingFromSubs });
         if (subGroups.length === 0) subGroups = null;
         list = missingFromSubs.concat(allCatDishes);
       } else if (directCatDishes && directCatDishes.length > 0) {
@@ -603,11 +605,59 @@ export function useMenuItemGrouping(params) {
         // never short.
         var foundNames = {};
         directCatDishes.forEach(function(d){ foundNames[d.name] = true; });
-        var missing = pkgDishNames.filter(function(n){ return !foundNames[n]; }).map(function(n){ return resolveOrSynth(n, sec); });
+        var missing = pkgDishNames.filter(function(n){ return !foundNames[n]; }).map(function(n){ return resolveOrSynth(n, labelSec); });
         list = missing.concat(pinnedRest(directCatDishes, pkgDishNames));
       } else {
-        list = pkgDishNames.map(function(name){ return resolveOrSynth(name, sec); });
+        list = pkgDishNames.map(function(name){ return resolveOrSynth(name, labelSec); });
       }
+      return { list: list, subGroups: subGroups };
+    }
+
+    var out = [];
+    pkgSecs.forEach(function(sec){
+      // A package subsection (Packages tab's own "one level of subsections",
+      // e.g. "Refreshing Station"/"Fresh Juice" under "Pour Atelier") can
+      // carry its OWN sales_dept, independent of its parent's — e.g. a
+      // beverage subsection nested under an otherwise-Kitchen section. Each
+      // one has to be checked against activeDept on its own: gating on only
+      // the PARENT's dept here (as this used to) skipped the whole section,
+      // subsections included, the moment the parent itself wasn't routed to
+      // this tab — so every dish that only lived inside a dept-routed
+      // subsection never got resolved/consumed by any package-section group
+      // and fell through to Extras instead, however the section tree looked
+      // in the Packages tab. dishNameToPkgDept (above) already got this
+      // right for COUNTING; this is the matching display-grouping fix.
+      var secDept = sec.sales_dept || 'kit';
+      var subs = sec.subsections || [];
+      var matchingSubs = subs.filter(function(sub){ return (sub.sales_dept || secDept) === activeDept; });
+      var ownMatches = secDept === activeDept;
+      if (!ownMatches && matchingSubs.length === 0) return; // nothing of this section belongs on this tab at all
+
+      var pooled = [];
+      var subGroups = null;
+
+      if (ownMatches) {
+        var own = resolveOwnDishes(sec.dishes, sec.catalogue_section_id, sec);
+        pooled = pooled.concat(own.list);
+        if (own.subGroups) {
+          subGroups = (subGroups || []).concat(own.subGroups);
+        } else if (own.list.length > 0 && matchingSubs.length > 0) {
+          // Own direct dishes, no catalogue subsectioning of their own — keep
+          // them as one labeled chunk only once a sibling subsection is also
+          // about to be appended below (otherwise this renders exactly as
+          // before: one flat list, no subGroup headers).
+          subGroups = (subGroups || []).concat([{ id: sec.id, name: sec.name, dishes: own.list }]);
+        }
+      }
+
+      matchingSubs.forEach(function(sub){
+        var subResolved = resolveOwnDishes(sub.dishes, sub.catalogue_section_id, sub);
+        if (subResolved.list.length === 0) return;
+        pooled = pooled.concat(subResolved.list);
+        subGroups = (subGroups || []).concat(subResolved.subGroups || [{ id: sub.id, name: sub.name, dishes: subResolved.list }]);
+      });
+
+      var list = pooled;
 
       // resolveOrSynth fills in any package dish name missing from the
       // (already search-filtered) catalogue pool by SYNTHESIZING a phantom
@@ -629,7 +679,7 @@ export function useMenuItemGrouping(params) {
       list.forEach(function(d){ consumed[d.name] = true; });
       // The package section's own id is meaningless to the catalogue; this is
       // the link the pill grouping (catalogueTree) reads.
-      out.push({ id: sec.id, name: sec.name, icon: iconFor(sec.sop_category), catSectionId: sec.catalogue_section_id || null, dishes: list, subGroups: subGroups });
+      out.push({ id: sec.id, name: sec.name, icon: iconFor(sec.sop_category), catSectionId: (ownMatches && sec.catalogue_section_id) || null, dishes: list, subGroups: subGroups });
     });
     if (out.length === 0) return null;
 
@@ -658,6 +708,13 @@ export function useMenuItemGrouping(params) {
       var id = rawId.indexOf('__unplaced') >= 0 ? rawId.slice(0, rawId.indexOf('__unplaced')) : rawId;
       var ps = pkgSecs.find(function(s){ return s.id === id; });
       if (ps) return ps.sales_dept || 'kit';
+      // A target can also be a package SUBSECTION id (see the subsections
+      // handling above) — its own sales_dept if set, else its parent
+      // package-section's, matching dishNameToPkgDept's same inheritance.
+      for (var i = 0; i < pkgSecs.length; i++) {
+        var subMatch = (pkgSecs[i].subsections || []).find(function(sub){ return sub.id === id; });
+        if (subMatch) return subMatch.sales_dept || pkgSecs[i].sales_dept || 'kit';
+      }
       var cs = sections.find(function(s){ return s.id === id; });
       if (cs) {
         if (cs.sales_dept) return cs.sales_dept;
