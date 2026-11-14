@@ -9,11 +9,12 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, MENU_PACKAGE_NO_AUTO_OVERRIDES } from '../data/menuPackages.js';
+import { APP_SETTINGS } from '../data/appSettings.js';
 import { detectPackageDiet } from '../utils/helpers.js';
 import { RECIPE_DB, createCustomDishInLibrary, getAllDishes } from '../data/recipeData.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS, pinnedDeptForDish } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
-import { fetchAllRows, dbSubscribe, dbRpc } from '../lib/db.js';
+import { fetchAllRows, dbSubscribe } from '../lib/db.js';
 import * as menuItemOps from '../lib/menuItemOps.js';
 import { resolveDeptForDish as resolveDeptForDishShared } from '../lib/eventItems.js';
 import { useMenuItemGrouping } from '../utils/useMenuItemGrouping.js';
@@ -714,13 +715,19 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // reason into the prompt below. Empty = admin hasn't set one, so unlocking
   // falls back to reason-only, same as before this existed.
   var [unlockCode, setUnlockCode] = useState('');
-  // Whether a code is even configured -- fetched via RPC, not read directly
-  // off app_settings (that table is admin-only-readable once RLS stage 2 is
-  // live, since it holds this same secret; fp_unlock_code_required() only
-  // ever reveals yes/no, never the value). Fetched lazily, right when the
-  // unlock modal is about to open (see onRequestUnlock below), not on every
-  // render.
-  var [fpCodeRequired, setFpCodeRequired] = useState(false);
+  // Whether a code is even configured. Reads APP_SETTINGS directly (same
+  // boot-hydrated client cache AccessManager's Security card already reads
+  // off) rather than via the fp_unlock_code_required()/verify_fp_unlock_code()
+  // RPCs those functions were written for — those only exist once RLS
+  // "stage 2" (supabase/migrations/20261112010000_rls_stage2_enforced.sql)
+  // is live, which depends on real Supabase Auth sign-in that hasn't shipped
+  // yet (see that migration's own header) — calling them 404s against the
+  // current DB and the unlock modal always showed "Could not verify the
+  // code". app_settings is still openly readable under RLS stage 1 (every
+  // client already has fp_unlock_code sitting in APP_SETTINGS at boot, same
+  // as before this RPC layer was written), so this is no less secure than
+  // today's actual deployed state — just restores the feature to it.
+  var fpCodeRequired = !!(APP_SETTINGS.fp_unlock_code && APP_SETTINGS.fp_unlock_code.trim());
   // The person who marked it final can always re-open their own FP with just
   // a reason, same as before the code existed — the code is only a gate
   // against someone OTHER than the locker re-opening it.
@@ -851,11 +858,12 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     var reason = unlockReason.trim();
     if (!reason) return;
     if (showUnlockCodeField) {
-      // Verified server-side -- the client never holds the actual code to
-      // compare against anymore (see fpCodeRequired's comment above).
-      var codeOk = await dbRpc('verify_fp_unlock_code', { p_code: unlockCode.trim() }).catch(function(e){ console.error('[EventMenuBuilder] verify_fp_unlock_code failed:', e); return null; });
-      if (codeOk == null) { alert(T2("Could not verify the code — check connection and try again.")); return; }
-      if (!codeOk) { alert(T2("Incorrect code.")); return; }
+      // Compared client-side against APP_SETTINGS (see fpCodeRequired's
+      // comment above) -- not a server-verified RPC, since that RPC doesn't
+      // exist in the current DB. No weaker than today's actual deployed
+      // state: app_settings.fp_unlock_code is already openly readable (RLS
+      // stage 1), so every client already has this value in memory.
+      if (unlockCode.trim() !== (APP_SETTINGS.fp_unlock_code || '').trim()) { alert(T2("Incorrect code.")); return; }
     }
     // Kitchen only hears about this unlock if they'd actually been sent the
     // FP before — reopening a plan that was only ever locked-while-drafting
@@ -1406,24 +1414,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
               locked={!!(fp && fp.locked)}
               onRequestLock={function(){ setFpLockModal('lockOnly'); }}
               onRequestMarkFinal={function(){ setFpLockModal('markFinal'); }}
-              onRequestUnlock={function(){
-                setFpLockModal('unlock');
-                if (!isOwnLock) {
-                  // Fail SAFE: assume a code IS required the instant the
-                  // modal opens, synchronously, before the RPC is even sent
-                  // -- otherwise the field starts hidden (state's own default
-                  // is false) and someone who types a reason and confirms
-                  // before the RPC resolves (plausible on venue wifi) would
-                  // get waved through with no code check at all. Also fail
-                  // safe on the RESULT: dbRpc resolves `null` (it does not
-                  // throw) when this call gets offline-queued rather than
-                  // actually answered by the server, so `null` must be
-                  // treated the same as "yes, required" -- only an explicit
-                  // `false` from a real server answer may turn the field off.
-                  setFpCodeRequired(true);
-                  dbRpc('fp_unlock_code_required', {}).then(function(required){ setFpCodeRequired(required !== false); }).catch(function(e){ console.error('[EventMenuBuilder] fp_unlock_code_required failed:', e); setFpCodeRequired(true); });
-                }
-              }} />
+              onRequestUnlock={function(){ setFpLockModal('unlock'); }} />
           )}
         </div>
       )}
