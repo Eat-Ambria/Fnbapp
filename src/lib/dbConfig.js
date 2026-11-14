@@ -367,6 +367,7 @@ export async function loadAllConfig() {
     dishGroups:         (function() { var g = {}; (menuPackagesRaw||[]).filter(function(r){return r.is_active!==false;}).forEach(function(r){ g[r.name] = typeof r.dish_groups === 'string' ? JSON.parse(r.dish_groups||'{}') : (r.dish_groups||{}); }); return g; })(),
     menuSections:       (function() { var s = {}; (menuPackagesRaw||[]).filter(function(r){return r.is_active!==false;}).forEach(function(r){ var raw = r.sections; if (raw == null) return; try { s[r.name] = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch(e) { console.warn('[menu_packages] sections parse failed for', r.name, e); } }); return s; })(),
     menuNoAutoOverrides: (function() { var o = {}; (menuPackagesRaw||[]).filter(function(r){return r.is_active!==false;}).forEach(function(r){ var raw = r.no_auto_select_overrides; if (raw == null) return; try { o[r.name] = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch(e) { console.warn('[menu_packages] no_auto_select_overrides parse failed for', r.name, e); } }); return o; })(),
+    menuAltGroupOverrides: (function() { var o = {}; (menuPackagesRaw||[]).filter(function(r){return r.is_active!==false;}).forEach(function(r){ var raw = r.alt_group_overrides; if (raw == null) return; try { o[r.name] = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch(e) { console.warn('[menu_packages] alt_group_overrides parse failed for', r.name, e); } }); return o; })(),
     vendors,
     recipeCategories,
     recipes:            transformRecipes(recipesRaw),

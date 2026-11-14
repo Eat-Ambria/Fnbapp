@@ -23,7 +23,7 @@ import {
   setPackageSections, getCatIdForDish, getExplicitCatIdForDish, deactivateDish, upsertDishCat,
   DISH_MASTER, upsertDishMaster,
 } from '../data/recipeData.js';
-import { MENU_PACKAGES, getNoAutoSelectOverride, setNoAutoSelectOverride } from '../data/menuPackages.js';
+import { MENU_PACKAGES, getNoAutoSelectOverride, setNoAutoSelectOverride, getAltGroupOverride, setAltGroupOverride } from '../data/menuPackages.js';
 import { supabase } from '../lib/supabase.js';
 import { getCateringStoreItemsCached, opsSupabase } from '../lib/opsSupabase.js';
 import { transliterateName } from '../utils/helpers.js';
@@ -64,6 +64,11 @@ function DishMappingModal(props) {
   // 'default' | 'always' | 'never' — this package's own override of the
   // catalogue no_auto_select setting above, or 'default' to defer to it.
   var [pkgOverrideBuf, setPkgOverrideBuf] = useState('default');
+  // This package's own override of the catalogue alt_group tag below.
+  // hasOverride tracks whether one exists at all (independent of text,
+  // since an override can legitimately be '' — "no group in this package").
+  var [pkgAltGroupBuf, setPkgAltGroupBuf]         = useState('');
+  var [pkgAltGroupHasOverride, setPkgAltGroupHasOverride] = useState(false);
 
   var [bump, setBump]                   = useState(0); // internal re-render trigger
 
@@ -118,6 +123,9 @@ function DishMappingModal(props) {
     setAltGroupBuf((row && row.alt_group) || '');
     var ov = pkgName ? getNoAutoSelectOverride(pkgName, dishName) : undefined;
     setPkgOverrideBuf(ov === undefined ? 'default' : (ov ? 'never' : 'always'));
+    var altOv = pkgName ? getAltGroupOverride(pkgName, dishName) : undefined;
+    setPkgAltGroupHasOverride(altOv !== undefined);
+    setPkgAltGroupBuf(altOv !== undefined ? altOv : ((row && row.alt_group) || ''));
     // eslint-disable-next-line
   }, [dishName, pkgName]);
 
@@ -267,6 +275,30 @@ function DishMappingModal(props) {
       await setNoAutoSelectOverride(pkgName, dishName, value);
       notify();
     } catch (e) { setPkgOverrideBuf(prev); alert('Save failed: ' + e.message); }
+    finally { setSaving(''); }
+  }
+
+  async function savePkgAltGroupOverride() {
+    if (!dishName || !pkgName) return;
+    setSaving('pkgaltgroup');
+    try {
+      await setAltGroupOverride(pkgName, dishName, pkgAltGroupBuf.trim());
+      setPkgAltGroupHasOverride(true);
+      setPkgAltGroupBuf(pkgAltGroupBuf.trim());
+      notify();
+    } catch (e) { alert('Save failed: ' + e.message); }
+    finally { setSaving(''); }
+  }
+
+  async function resetPkgAltGroupOverride() {
+    if (!dishName || !pkgName) return;
+    setSaving('pkgaltgroup');
+    try {
+      await setAltGroupOverride(pkgName, dishName, null);
+      setPkgAltGroupHasOverride(false);
+      setPkgAltGroupBuf((DISH_MASTER[dishName] && DISH_MASTER[dishName].alt_group) || '');
+      notify();
+    } catch (e) { alert('Reset failed: ' + e.message); }
     finally { setSaving(''); }
   }
 
@@ -617,6 +649,41 @@ function DishMappingModal(props) {
             <div style={{ fontSize: 10, color: C.faint, marginTop: 3 }}>
               {T2('Give Dish X and Dish Y the same tag and a client-facing menu preview shows them joined as "Dish X / Dish Y" — leave blank for a normal dish.')}
             </div>
+
+            {/* Package-specific override — same idea as "Within this package"
+                above: the tag/blank above is catalogue-wide, this lets one
+                package group (or ungroup) this dish without touching any
+                other package that uses it. Only shown when opened from
+                inside a package's own section editor. */}
+            {pkgName && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid ' + C.borderLight }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4 }}>
+                  {T2('Within this package')} ({pkgName})
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input value={pkgAltGroupBuf} onChange={function(e) { setPkgAltGroupBuf(e.target.value); }}
+                    placeholder={T2('e.g. mc-paneer-choice — leave blank for no group in this package')} disabled={!isAdmin}
+                    style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid ' + C.border, background: C.surface, fontSize: 12, color: C.text, boxSizing: 'border-box' }} />
+                  {isAdmin && (
+                    <button onClick={savePkgAltGroupOverride} disabled={!!saving}
+                      style={{ padding: '6px 14px', borderRadius: 6, background: C.green, border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: saving === 'pkgaltgroup' ? 'wait' : 'pointer', opacity: saving ? 0.5 : 1 }}>
+                      {saving === 'pkgaltgroup' ? T2('Saving…') : T2('Save')}
+                    </button>
+                  )}
+                  {isAdmin && pkgAltGroupHasOverride && (
+                    <button onClick={resetPkgAltGroupOverride} disabled={!!saving}
+                      style={{ padding: '6px 14px', borderRadius: 6, background: 'transparent', border: '1px solid ' + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.5 : 1 }}>
+                      {T2('Use catalogue default')}
+                    </button>
+                  )}
+                </div>
+                <div style={{ fontSize: 10, color: C.faint, marginTop: 4 }}>
+                  {pkgAltGroupHasOverride
+                    ? T2('This package overrides the catalogue tag above — other packages using this dish are unaffected.')
+                    : T2('Currently following the catalogue tag above. Save a different tag (or save blank for no group) to override it just for this package.')}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

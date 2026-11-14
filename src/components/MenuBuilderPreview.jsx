@@ -9,6 +9,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { T } from '../data/translations.js';
 import { getCatIdForDish, RECIPE_DB, getAllDishes } from '../data/recipeData.js';
+import { getAltGroupOverride } from '../data/menuPackages.js';
 import { SALES_DEPTS, ITEM_HAVING_DEPTS, DEFAULT_DEPT, pinnedDeptForDish } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
@@ -262,16 +263,30 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
   var [sentJust, setSentJust]       = useState(false);
   var currentStatus = proposal.status || 'draft';
 
+  // MENU_PACKAGE_ALT_GROUP_OVERRIDES is a mutable module-level object (see
+  // menuPackages.js) — mutating it is silent to React, so bump on its
+  // refresh event to pick up an override saved from DishMappingModal while
+  // this preview happens to already be open.
+  var [pkgVer, setPkgVer] = useState(0);
+  useEffect(function(){
+    function onRefresh(){ setPkgVer(function(v){ return v + 1; }); }
+    window.addEventListener('ambria:menu-packages-refreshed', onRefresh);
+    return function(){ window.removeEventListener('ambria:menu-packages-refreshed', onRefresh); };
+  }, []);
+
   // Dishes sharing a non-empty alt_group tag are alternatives of each other
   // (e.g. a Dish X / Dish Y choice inside Main Course) — this client-facing
   // preview shows them joined even once the event's actual Function Plan has
   // resolved to just one, since the point here is "what the package offers",
   // not "what this specific client picked" (that's the FP's job). A lone tag
   // (nobody else shares it) isn't a real choice group, so it's left alone.
+  var pkgName = (templateInfo && templateInfo.name) || '';
   var altGroupLabel = useMemo(function(){
     var byGroup = {};
     getAllDishes({ includeInactive: true }).forEach(function(d){
-      if (d.alt_group) { (byGroup[d.alt_group] = byGroup[d.alt_group] || []).push(d.dish_name); }
+      var ov = pkgName ? getAltGroupOverride(pkgName, d.dish_name) : undefined;
+      var tag = ov === undefined ? (d.alt_group || '') : ov;
+      if (tag) { (byGroup[tag] = byGroup[tag] || []).push(d.dish_name); }
     });
     var out = {};
     Object.keys(byGroup).forEach(function(g){
@@ -281,7 +296,8 @@ export function MenuBuilderPreview({ proposal, dishItems, salesMeta, templateInf
       names.forEach(function(n){ out[n] = joined; });
     });
     return out;
-  }, []);
+    // eslint-disable-next-line
+  }, [pkgName, pkgVer]);
 
   // ── Group items by (dept, category) ──
   var byDeptByCat = useMemo(function(){

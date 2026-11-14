@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, MENU_PACKAGE_NO_AUTO_OVERRIDES, refreshMenuPackages, describeEventMenu } from '../data/menuPackages.js';
+import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, MENU_PACKAGE_NO_AUTO_OVERRIDES, MENU_PACKAGE_ALT_GROUP_OVERRIDES, refreshMenuPackages, describeEventMenu } from '../data/menuPackages.js';
 import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster, resolveDishVeg } from '../data/recipeData.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { syncKitchenMenuMirror } from '../lib/eventItems.js';
@@ -1274,7 +1274,8 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       // silently reassign an existing package's id via upsert's onConflict.
       var res = await supabase.from('menu_packages')
         .insert({ id: newId, name: name, dishes: flatDishes, sections: serialized, is_active: true,
-          no_auto_select_overrides: MENU_PACKAGE_NO_AUTO_OVERRIDES[selPkg] || {} });
+          no_auto_select_overrides: MENU_PACKAGE_NO_AUTO_OVERRIDES[selPkg] || {},
+          alt_group_overrides: MENU_PACKAGE_ALT_GROUP_OVERRIDES[selPkg] || {} });
       if (res.error) {
         if (res.error.code === '23505') { alert('A package named "' + name + '" already exists.'); return; }
         throw res.error;

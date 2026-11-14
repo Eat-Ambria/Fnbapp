@@ -33,6 +33,16 @@ let MENU_PACKAGE_META = {};
 // to the catalogue default. Hydrated from menu_packages.no_auto_select_overrides.
 let MENU_PACKAGE_NO_AUTO_OVERRIDES = {};
 
+// Per-package override of dishes_master.alt_group (catalogue-wide). A dish
+// tagged as part of a choice-group in one package may be a plain standalone
+// dish in another, so this lets one package override the catalogue tag for
+// specific dishes without changing it everywhere else.
+// Shape: { [pkgName]: { [dishName]: altGroupTag } } — altGroupTag is the
+// override's effective alt_group for this package ('' = explicitly no group
+// here, even if the catalogue default has one); absent = fall back to the
+// catalogue default. Hydrated from menu_packages.alt_group_overrides.
+let MENU_PACKAGE_ALT_GROUP_OVERRIDES = {};
+
 // True from the first real hydrateMenuPackageSections() call onward (boot's
 // own call included) — lets a consumer tell "this package genuinely has no
 // custom sections" apart from "sections haven't loaded yet", which an empty
@@ -131,6 +141,40 @@ async function setNoAutoSelectOverride(pkgName, dishName, value) {
   hydrateMenuPackageNoAutoOverrides(wholeMap);
 }
 
+// Populate MENU_PACKAGE_ALT_GROUP_OVERRIDES from a { [pkgName]: { [dishName]: tag } }
+// map. Overwrites the entire map (last write wins) — same pattern as the
+// no-auto-select overlay above.
+function hydrateMenuPackageAltGroupOverrides(overridesMap) {
+  if (!overridesMap || typeof overridesMap !== 'object') return;
+  Object.keys(MENU_PACKAGE_ALT_GROUP_OVERRIDES).forEach(k => delete MENU_PACKAGE_ALT_GROUP_OVERRIDES[k]);
+  Object.assign(MENU_PACKAGE_ALT_GROUP_OVERRIDES, overridesMap);
+  notifyMenuPackagesRefreshed();
+}
+
+// undefined = no override set for this dish in this package (caller should
+// fall back to the catalogue default alt_group); string (possibly '') = the
+// package's explicit override, which wins outright over the catalogue
+// default either way ('' = explicitly no group in this package).
+function getAltGroupOverride(pkgName, dishName) {
+  var m = pkgName && MENU_PACKAGE_ALT_GROUP_OVERRIDES[pkgName];
+  if (!m || !Object.prototype.hasOwnProperty.call(m, dishName)) return undefined;
+  return m[dishName] || '';
+}
+
+// value: string (the override tag, '' = explicitly no group here) | null
+// (clear the override, fall back to the catalogue default).
+async function setAltGroupOverride(pkgName, dishName, value) {
+  if (!pkgName || !dishName) return;
+  var current = MENU_PACKAGE_ALT_GROUP_OVERRIDES[pkgName] || {};
+  var next = Object.assign({}, current);
+  if (value === null) { delete next[dishName]; } else { next[dishName] = value; }
+  var res = await supabase.from('menu_packages').update({ alt_group_overrides: next }).eq('name', pkgName);
+  if (res.error) throw res.error;
+  var wholeMap = Object.assign({}, MENU_PACKAGE_ALT_GROUP_OVERRIDES);
+  wholeMap[pkgName] = next;
+  hydrateMenuPackageAltGroupOverrides(wholeMap);
+}
+
 // V74 — Re-fetch menu_packages from Supabase and re-hydrate the in-memory maps
 // including the sections overlay — hydrateMenuPackages/hydrateMenuPackageSections
 // each fire 'ambria:menu-packages-refreshed' on window themselves so React
@@ -147,6 +191,7 @@ async function refreshMenuPackages() {
     const meta   = {};
     const sections = {};
     const noAutoOverrides = {};
+    const altGroupOverrides = {};
     rows.forEach(r => {
       pkgMap[r.name] = typeof r.dishes === 'string' ? JSON.parse(r.dishes || '[]') : (r.dishes || []);
       groups[r.name] = typeof r.dish_groups === 'string' ? JSON.parse(r.dish_groups || '{}') : (r.dish_groups || {});
@@ -161,10 +206,16 @@ async function refreshMenuPackages() {
           noAutoOverrides[r.name] = typeof r.no_auto_select_overrides === 'string' ? JSON.parse(r.no_auto_select_overrides) : r.no_auto_select_overrides;
         } catch(e) { console.warn('[menuPackages] no_auto_select_overrides parse failed for', r.name, e); }
       }
+      if (r.alt_group_overrides != null) {
+        try {
+          altGroupOverrides[r.name] = typeof r.alt_group_overrides === 'string' ? JSON.parse(r.alt_group_overrides) : r.alt_group_overrides;
+        } catch(e) { console.warn('[menuPackages] alt_group_overrides parse failed for', r.name, e); }
+      }
     });
     hydrateMenuPackages(pkgMap, groups, meta);
     hydrateMenuPackageSections(sections);
     hydrateMenuPackageNoAutoOverrides(noAutoOverrides);
+    hydrateMenuPackageAltGroupOverrides(altGroupOverrides);
     return true;
   } catch (e) {
     console.warn('[menuPackages] refresh err:', e);
@@ -204,11 +255,15 @@ export {
   MENU_PACKAGE_SECTIONS,
   MENU_PACKAGE_META,
   MENU_PACKAGE_NO_AUTO_OVERRIDES,
+  MENU_PACKAGE_ALT_GROUP_OVERRIDES,
   hydrateMenuPackages,
   hydrateMenuPackageSections,
   hydrateMenuPackageNoAutoOverrides,
+  hydrateMenuPackageAltGroupOverrides,
   getNoAutoSelectOverride,
   setNoAutoSelectOverride,
+  getAltGroupOverride,
+  setAltGroupOverride,
   isMenuPackageSectionsHydrated,
   refreshMenuPackages,
   describeEventMenu
