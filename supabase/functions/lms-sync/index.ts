@@ -136,6 +136,55 @@ async function fetchAllPages(
   return { rows: all, truncated };
 }
 
+// ── Sales rep user IDs: fetch + cache ──
+// 2026-11-14 incident: the single configured app_config.lms_user_id (an
+// "adm" account) does NOT reliably see every contract -- confirmed directly
+// against the LMS API: a still-active, fully-valid, non-cancelled contract
+// (Sahil Mehta, #00471) was invisible under the admin account but fetched
+// fine under its owning rep's own id. 76 of that SAME rep's other contracts
+// DID come through the admin account fine, so this isn't "that rep is
+// wholesale invisible" -- it's some narrower, unexplained gap in the admin
+// account's own view that can silently swallow individual contracts. The
+// "clean up cancelled/removed" pass downstream then (wrongly) hard-deletes
+// anything missing from the fetch, cascade-taking its FP/items with it --
+// this already happened once for real (a finalized, sent-to-kitchen FP).
+// Fix: fetch with EVERY active sales rep's own id too, not just the one
+// configured admin account, and merge everything before the cleanup pass
+// decides what's "missing". A contract that's a genuine gap in the admin's
+// view but fine under its owner's own id is now covered either way.
+async function getSalesUserIds(sb: any): Promise<string[]> {
+  const { data: cached } = await sb
+    .from("lms_masters")
+    .select("data, fetched_at")
+    .eq("key", "sales_user_ids")
+    .maybeSingle();
+  const stale = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  if (cached && new Date(cached.fetched_at) > stale && Array.isArray(cached.data)) {
+    return cached.data;
+  }
+  try {
+    const json = await lmsPost("/api/v1/createcommon_api/get_user_list", {});
+    const list = json.userdata || json.data || json || [];
+    // "user" = ordinary CRM user (sales/ops), the role contracts are entered
+    // under; "adm"/"exp"/"sec"/"act"/"ops" are admin/expense/security/
+    // accounts/operations logins that don't own contracts and would just be
+    // wasted fetches. userstatus "Y" excludes deactivated logins.
+    const ids = (Array.isArray(list) ? list : [])
+      .filter((u: any) => u.usertype === "user" && u.userstatus === "Y" && u.id != null)
+      .map((u: any) => String(u.id));
+    if (ids.length > 0) {
+      await sb.from("lms_masters").upsert({ key: "sales_user_ids", data: ids, fetched_at: new Date().toISOString() });
+    }
+    return ids;
+  } catch (e) {
+    console.error("Failed to fetch sales user ids:", e);
+    // Fall back to whatever's cached, even if stale, rather than nothing --
+    // a stale-but-present rep list still beats silently losing this coverage
+    // entirely because of one failed fetch.
+    return (cached && Array.isArray(cached.data)) ? cached.data : [];
+  }
+}
+
 // ── Master data: fetch + cache ──
 async function getMasters(sb: any, userId: string): Promise<{
   venues: Record<string, string>;
@@ -615,21 +664,56 @@ Deno.serve(async (req) => {
     const masters = await getMasters(sb, userId);
     console.log(`Masters: ${Object.keys(masters.venues).length} venues, ${Object.keys(masters.menus).length} menus, ${Object.keys(masters.functions).length} functions`);
 
-    // ── Fetch Venue Contracts ──
-    const { rows: venueRows, truncated: venueTruncated } = await fetchAllPages(
-      "/api/v1/processerp_api/get_venue_contract_information_list",
-      { loggeduserid: userId, fromdate: fromDate, uptodated: uptoDate, venue_datetype: "function_date" },
-      "Contractinfo"
-    );
-    console.log(`Venue contracts fetched: ${venueRows.length} rows${venueTruncated ? " (TRUNCATED -- hit MAX_PAGES)" : ""}`);
+    // ── Fetch Venue + Catering Contracts, per user ──
+    // Not just the one configured admin account -- see getSalesUserIds'
+    // comment for why. Every active sales rep's own id is queried too, for
+    // the SAME date window, and all rows are merged before transform/dedup;
+    // a contract already covered by the admin account is a harmless,
+    // automatically-deduped repeat fetch (dedup is by the transformed event
+    // id downstream, not here), not a double-counted event.
+    const salesUserIds = await getSalesUserIds(sb);
+    const fetchUserIds = Array.from(new Set([userId, ...salesUserIds]));
+    console.log(`Fetching as ${fetchUserIds.length} user id(s): ${userId} (configured) + ${salesUserIds.length} sales rep(s)`);
 
-    // ── Fetch Catering Contracts ──
-    const { rows: cateringRows, truncated: cateringTruncated } = await fetchAllPages(
-      "/api/v1/processerp_api/get_catering_contract_information_list",
-      { loggeduserid: userId, fromdate: fromDate, uptodated: uptoDate, cater_datetype: "function_date" },
-      "Contractinfo"
+    // Bounded concurrency -- one user id's own upcoming-contracts window is
+    // small (a handful of pages, not the whole company's), but doing all
+    // ~30+ of them fully sequentially would needlessly stack up round-trip
+    // latency against the function's own execution time limit.
+    const CONCURRENCY = 6;
+    async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+      const results: R[] = new Array(items.length);
+      let next = 0;
+      async function worker() {
+        while (next < items.length) {
+          const i = next++;
+          results[i] = await fn(items[i]);
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+      return results;
+    }
+
+    const venueResults = await mapWithConcurrency(fetchUserIds, CONCURRENCY, (uid) =>
+      fetchAllPages(
+        "/api/v1/processerp_api/get_venue_contract_information_list",
+        { loggeduserid: uid, fromdate: fromDate, uptodated: uptoDate, venue_datetype: "function_date" },
+        "Contractinfo"
+      )
     );
-    console.log(`Catering contracts fetched: ${cateringRows.length} rows${cateringTruncated ? " (TRUNCATED -- hit MAX_PAGES)" : ""}`);
+    const cateringResults = await mapWithConcurrency(fetchUserIds, CONCURRENCY, (uid) =>
+      fetchAllPages(
+        "/api/v1/processerp_api/get_catering_contract_information_list",
+        { loggeduserid: uid, fromdate: fromDate, uptodated: uptoDate, cater_datetype: "function_date" },
+        "Contractinfo"
+      )
+    );
+
+    const venueRows = venueResults.flatMap((r) => r.rows);
+    const cateringRows = cateringResults.flatMap((r) => r.rows);
+    const venueTruncated = venueResults.some((r) => r.truncated);
+    const cateringTruncated = cateringResults.some((r) => r.truncated);
+    console.log(`Venue contracts fetched: ${venueRows.length} rows across ${fetchUserIds.length} user id(s)${venueTruncated ? " (TRUNCATED for at least one user -- hit MAX_PAGES)" : ""}`);
+    console.log(`Catering contracts fetched: ${cateringRows.length} rows across ${fetchUserIds.length} user id(s)${cateringTruncated ? " (TRUNCATED for at least one user -- hit MAX_PAGES)" : ""}`);
     const fetchTruncated = venueTruncated || cateringTruncated;
 
     // ── Transform all rows to FnB events ──
