@@ -30,6 +30,7 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
+import { upsertDishMaster } from '../data/recipeData.js';
 import { SALES_DEPTS, ITEM_HAVING_DEPTS } from '../data/salesConfig.js';
 import { KToast, KModal } from './KitchenUI.jsx';
 import { uploadMenuPhoto, slugRecipeKey } from '../utils/helpers.js';
@@ -335,6 +336,7 @@ function DishSectionsEditor(props) {
         if (next[dishName]) next[dishName] = { ...next[dishName], image_url: url };
         return next;
       });
+      upsertDishMaster(dishName, { image_url: url });
       say('Photo updated', dishName + ' now has a picture on its card in Menu Builder.');
     } catch (e) {
       const missing = /bucket not found|nosuchbucket/i.test(String(e && e.message));
@@ -409,6 +411,7 @@ function DishSectionsEditor(props) {
         });
         return next;
       });
+      assignedNames.forEach(function(name){ upsertDishMaster(name, { section_id: null, sort_in_section: null }); });
       say('Section deleted', '"' + sec.name + '" is gone.');
     } catch (e) { fail('Could not delete', e); }
     finally { setSaving(false); }
@@ -524,6 +527,12 @@ function DishSectionsEditor(props) {
           [target.name]: { ...(cur[target.name] || {}), sort_in_section: targetSort },
         };
       });
+      // This screen's own state (above) isn't what Build Menu/FP Print read —
+      // they read DISH_MASTER (recipeData.js), hydrated once at boot and
+      // otherwise never refreshed. Without patching it here too, a reorder
+      // made here is invisible everywhere else until a full page reload.
+      upsertDishMaster(dishName,    { sort_in_section: dishSort });
+      upsertDishMaster(target.name, { sort_in_section: targetSort });
     } catch (e) { fail('Could not reorder', e); }
     finally { setSaving(false); }
   }
@@ -546,6 +555,10 @@ function DishSectionsEditor(props) {
         const p = prev || {};
         return { ...p, [dishName]: { ...(p[dishName] || {}), section_id: newSectionId, sort_in_section: newSort } };
       });
+      // See moveDish's comment above — patch the shared cache too, or Build
+      // Menu/FP Print keep showing this dish under its OLD section (or
+      // Extras) until a full reload.
+      upsertDishMaster(dishName, { section_id: newSectionId, sort_in_section: newSort });
     } catch (e) { fail('Could not move the dish', e); }
     finally { setSaving(false); }
   }
@@ -565,6 +578,7 @@ function DishSectionsEditor(props) {
         const p = prev || {};
         return { ...p, [dishName]: { ...(p[dishName] || {}), section_id: null, sort_in_section: null } };
       });
+      upsertDishMaster(dishName, { section_id: null, sort_in_section: null });
     } catch (e) { fail('Could not unassign', e); }
     finally { setSaving(false); }
   }
@@ -585,6 +599,7 @@ function DishSectionsEditor(props) {
         const p = prev || {};
         return { ...p, [dishName]: { ...(p[dishName] || {}), is_veg: next } };
       });
+      upsertDishMaster(dishName, { is_veg: next });
     } catch (e) { fail('Could not update', e); }
     finally { setSaving(false); }
   }
@@ -706,6 +721,7 @@ function DishSectionsEditor(props) {
       });
       // Optimistic local update
       setDishAssignments(function(prev){ return { ...(prev || {}), ...updates }; });
+      Object.keys(updates).forEach(function(name){ upsertDishMaster(name, updates[name]); });
       clearBulk();
       // A partial move is a warning, not a failure — some rows did land.
       if (ok < names.length) setToast({ tone: 'warn', title: 'Moved ' + ok + ' of ' + names.length + ' dishes',
@@ -741,6 +757,7 @@ function DishSectionsEditor(props) {
       if (delErr) throw delErr;
       // V73: optimistic local update
       setDishAssignments(function(prev){ return { ...(prev || {}), ...movedUpdates }; });
+      Object.keys(movedUpdates).forEach(function(name){ upsertDishMaster(name, movedUpdates[name]); });
       setSections(function(prev){ return (prev || []).filter(function(s){ return s.id !== mergeModal.sourceId; }); });
       setMergeModal(null); setMergeTargetId('');
     } catch (e) { fail('Could not merge', e); }
