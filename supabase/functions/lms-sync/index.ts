@@ -708,12 +708,36 @@ Deno.serve(async (req) => {
       )
     );
 
-    const venueRows = venueResults.flatMap((r) => r.rows);
-    const cateringRows = cateringResults.flatMap((r) => r.rows);
+    // Fetching the same contract under multiple user ids (by design, now)
+    // means the IDENTICAL raw row can show up once per user whose fetch
+    // happened to include it. Dedup by the row's own LMS primary key (`id`
+    // -- the same field transformVenueContract/transformCateringContract
+    // already use as _lmsDetailId) BEFORE transform, not after: the
+    // multi-function-same-date disambiguation below groups transformed
+    // events by base id and treats any group of more than one as "genuinely
+    // different functions on the same date" needing a suffixed id. Without
+    // this dedup, an ordinary single-function contract visible to 2+ fetched
+    // users forms a false group of identical duplicates, gets wrongly
+    // suffixed anyway, and the cleanup pass then deletes its OLD plain id as
+    // "missing" -- cascading away its event_items/event_function_plans for
+    // real, the very bug this multi-user fetch was built to stop. Confirmed
+    // against production: this exact bug fired on the first sync after the
+    // multi-user change shipped (145 events deleted in one run).
+    function dedupRawRows(rows: any[]): any[] {
+      const byDetailId = new Map<string, any>();
+      const noId: any[] = [];
+      for (const row of rows) {
+        if (row && row.id != null) byDetailId.set(String(row.id), row);
+        else noId.push(row); // no usable key -- keep as-is, rare/unexpected
+      }
+      return [...byDetailId.values(), ...noId];
+    }
+    const venueRows = dedupRawRows(venueResults.flatMap((r) => r.rows));
+    const cateringRows = dedupRawRows(cateringResults.flatMap((r) => r.rows));
     const venueTruncated = venueResults.some((r) => r.truncated);
     const cateringTruncated = cateringResults.some((r) => r.truncated);
-    console.log(`Venue contracts fetched: ${venueRows.length} rows across ${fetchUserIds.length} user id(s)${venueTruncated ? " (TRUNCATED for at least one user -- hit MAX_PAGES)" : ""}`);
-    console.log(`Catering contracts fetched: ${cateringRows.length} rows across ${fetchUserIds.length} user id(s)${cateringTruncated ? " (TRUNCATED for at least one user -- hit MAX_PAGES)" : ""}`);
+    console.log(`Venue contracts fetched: ${venueRows.length} unique rows across ${fetchUserIds.length} user id(s)${venueTruncated ? " (TRUNCATED for at least one user -- hit MAX_PAGES)" : ""}`);
+    console.log(`Catering contracts fetched: ${cateringRows.length} unique rows across ${fetchUserIds.length} user id(s)${cateringTruncated ? " (TRUNCATED for at least one user -- hit MAX_PAGES)" : ""}`);
     const fetchTruncated = venueTruncated || cateringTruncated;
 
     // ── Transform all rows to FnB events ──
