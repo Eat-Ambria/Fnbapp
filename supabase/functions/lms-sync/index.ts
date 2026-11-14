@@ -136,55 +136,6 @@ async function fetchAllPages(
   return { rows: all, truncated };
 }
 
-// ── Sales rep user IDs: fetch + cache ──
-// 2026-11-14 incident: the single configured app_config.lms_user_id (an
-// "adm" account) does NOT reliably see every contract -- confirmed directly
-// against the LMS API: a still-active, fully-valid, non-cancelled contract
-// (Sahil Mehta, #00471) was invisible under the admin account but fetched
-// fine under its owning rep's own id. 76 of that SAME rep's other contracts
-// DID come through the admin account fine, so this isn't "that rep is
-// wholesale invisible" -- it's some narrower, unexplained gap in the admin
-// account's own view that can silently swallow individual contracts. The
-// "clean up cancelled/removed" pass downstream then (wrongly) hard-deletes
-// anything missing from the fetch, cascade-taking its FP/items with it --
-// this already happened once for real (a finalized, sent-to-kitchen FP).
-// Fix: fetch with EVERY active sales rep's own id too, not just the one
-// configured admin account, and merge everything before the cleanup pass
-// decides what's "missing". A contract that's a genuine gap in the admin's
-// view but fine under its owner's own id is now covered either way.
-async function getSalesUserIds(sb: any): Promise<string[]> {
-  const { data: cached } = await sb
-    .from("lms_masters")
-    .select("data, fetched_at")
-    .eq("key", "sales_user_ids")
-    .maybeSingle();
-  const stale = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  if (cached && new Date(cached.fetched_at) > stale && Array.isArray(cached.data)) {
-    return cached.data;
-  }
-  try {
-    const json = await lmsPost("/api/v1/createcommon_api/get_user_list", {});
-    const list = json.userdata || json.data || json || [];
-    // "user" = ordinary CRM user (sales/ops), the role contracts are entered
-    // under; "adm"/"exp"/"sec"/"act"/"ops" are admin/expense/security/
-    // accounts/operations logins that don't own contracts and would just be
-    // wasted fetches. userstatus "Y" excludes deactivated logins.
-    const ids = (Array.isArray(list) ? list : [])
-      .filter((u: any) => u.usertype === "user" && u.userstatus === "Y" && u.id != null)
-      .map((u: any) => String(u.id));
-    if (ids.length > 0) {
-      await sb.from("lms_masters").upsert({ key: "sales_user_ids", data: ids, fetched_at: new Date().toISOString() });
-    }
-    return ids;
-  } catch (e) {
-    console.error("Failed to fetch sales user ids:", e);
-    // Fall back to whatever's cached, even if stale, rather than nothing --
-    // a stale-but-present rep list still beats silently losing this coverage
-    // entirely because of one failed fetch.
-    return (cached && Array.isArray(cached.data)) ? cached.data : [];
-  }
-}
-
 // ── Master data: fetch + cache ──
 async function getMasters(sb: any, userId: string): Promise<{
   venues: Record<string, string>;
@@ -664,80 +615,21 @@ Deno.serve(async (req) => {
     const masters = await getMasters(sb, userId);
     console.log(`Masters: ${Object.keys(masters.venues).length} venues, ${Object.keys(masters.menus).length} menus, ${Object.keys(masters.functions).length} functions`);
 
-    // ── Fetch Venue + Catering Contracts, per user ──
-    // Not just the one configured admin account -- see getSalesUserIds'
-    // comment for why. Every active sales rep's own id is queried too, for
-    // the SAME date window, and all rows are merged before transform/dedup;
-    // a contract already covered by the admin account is a harmless,
-    // automatically-deduped repeat fetch (dedup is by the transformed event
-    // id downstream, not here), not a double-counted event.
-    const salesUserIds = await getSalesUserIds(sb);
-    const fetchUserIds = Array.from(new Set([userId, ...salesUserIds]));
-    console.log(`Fetching as ${fetchUserIds.length} user id(s): ${userId} (configured) + ${salesUserIds.length} sales rep(s)`);
-
-    // Bounded concurrency -- one user id's own upcoming-contracts window is
-    // small (a handful of pages, not the whole company's), but doing all
-    // ~30+ of them fully sequentially would needlessly stack up round-trip
-    // latency against the function's own execution time limit.
-    const CONCURRENCY = 6;
-    async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-      const results: R[] = new Array(items.length);
-      let next = 0;
-      async function worker() {
-        while (next < items.length) {
-          const i = next++;
-          results[i] = await fn(items[i]);
-        }
-      }
-      await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-      return results;
-    }
-
-    const venueResults = await mapWithConcurrency(fetchUserIds, CONCURRENCY, (uid) =>
-      fetchAllPages(
-        "/api/v1/processerp_api/get_venue_contract_information_list",
-        { loggeduserid: uid, fromdate: fromDate, uptodated: uptoDate, venue_datetype: "function_date" },
-        "Contractinfo"
-      )
+    // ── Fetch Venue Contracts ──
+    const { rows: venueRows, truncated: venueTruncated } = await fetchAllPages(
+      "/api/v1/processerp_api/get_venue_contract_information_list",
+      { loggeduserid: userId, fromdate: fromDate, uptodated: uptoDate, venue_datetype: "function_date" },
+      "Contractinfo"
     );
-    const cateringResults = await mapWithConcurrency(fetchUserIds, CONCURRENCY, (uid) =>
-      fetchAllPages(
-        "/api/v1/processerp_api/get_catering_contract_information_list",
-        { loggeduserid: uid, fromdate: fromDate, uptodated: uptoDate, cater_datetype: "function_date" },
-        "Contractinfo"
-      )
-    );
+    console.log(`Venue contracts fetched: ${venueRows.length} rows${venueTruncated ? " (TRUNCATED -- hit MAX_PAGES)" : ""}`);
 
-    // Fetching the same contract under multiple user ids (by design, now)
-    // means the IDENTICAL raw row can show up once per user whose fetch
-    // happened to include it. Dedup by the row's own LMS primary key (`id`
-    // -- the same field transformVenueContract/transformCateringContract
-    // already use as _lmsDetailId) BEFORE transform, not after: the
-    // multi-function-same-date disambiguation below groups transformed
-    // events by base id and treats any group of more than one as "genuinely
-    // different functions on the same date" needing a suffixed id. Without
-    // this dedup, an ordinary single-function contract visible to 2+ fetched
-    // users forms a false group of identical duplicates, gets wrongly
-    // suffixed anyway, and the cleanup pass then deletes its OLD plain id as
-    // "missing" -- cascading away its event_items/event_function_plans for
-    // real, the very bug this multi-user fetch was built to stop. Confirmed
-    // against production: this exact bug fired on the first sync after the
-    // multi-user change shipped (145 events deleted in one run).
-    function dedupRawRows(rows: any[]): any[] {
-      const byDetailId = new Map<string, any>();
-      const noId: any[] = [];
-      for (const row of rows) {
-        if (row && row.id != null) byDetailId.set(String(row.id), row);
-        else noId.push(row); // no usable key -- keep as-is, rare/unexpected
-      }
-      return [...byDetailId.values(), ...noId];
-    }
-    const venueRows = dedupRawRows(venueResults.flatMap((r) => r.rows));
-    const cateringRows = dedupRawRows(cateringResults.flatMap((r) => r.rows));
-    const venueTruncated = venueResults.some((r) => r.truncated);
-    const cateringTruncated = cateringResults.some((r) => r.truncated);
-    console.log(`Venue contracts fetched: ${venueRows.length} unique rows across ${fetchUserIds.length} user id(s)${venueTruncated ? " (TRUNCATED for at least one user -- hit MAX_PAGES)" : ""}`);
-    console.log(`Catering contracts fetched: ${cateringRows.length} unique rows across ${fetchUserIds.length} user id(s)${cateringTruncated ? " (TRUNCATED for at least one user -- hit MAX_PAGES)" : ""}`);
+    // ── Fetch Catering Contracts ──
+    const { rows: cateringRows, truncated: cateringTruncated } = await fetchAllPages(
+      "/api/v1/processerp_api/get_catering_contract_information_list",
+      { loggeduserid: userId, fromdate: fromDate, uptodated: uptoDate, cater_datetype: "function_date" },
+      "Contractinfo"
+    );
+    console.log(`Catering contracts fetched: ${cateringRows.length} rows${cateringTruncated ? " (TRUNCATED -- hit MAX_PAGES)" : ""}`);
     const fetchTruncated = venueTruncated || cateringTruncated;
 
     // ── Transform all rows to FnB events ──
@@ -990,21 +882,27 @@ Deno.serve(async (req) => {
       .like("id", "LMS-%")
       .or("is_deleted.is.null,is_deleted.eq.false");
 
+    // 2026-11-14: this auto-delete pass is PERMANENTLY DISABLED after today's
+    // incident. "Missing from this one fetch" has now been proven unsafe to
+    // treat as "cancelled in LMS" THREE separate times in the same day, for
+    // three different reasons (plain pagination truncation; a contract
+    // invisible to the configured admin account despite being live and
+    // non-cancelled in LMS; then this very safeguard's own replacement logic
+    // introducing a fresh id-churn bug on its first run) -- each one hard-
+    // deleted real events and cascade-took their event_items/
+    // event_function_plans with them, including at least one already-
+    // finalized, sent-to-kitchen FP, with zero way to recover any of it
+    // afterward (no tombstone, no snapshot, immediate CASCADE). A detection
+    // heuristic that has been wrong this many times in one day, with
+    // unrecoverable consequences each time, should not be making the delete
+    // decision unsupervised at all -- it only ever needs to flag candidates
+    // for a human to confirm via the app's own (soft, reversible) delete
+    // button. Never re-enable automatic deletion here without a durable,
+    // reviewed tombstone/undo path first.
     const toDelete = (existingLms || []).filter(e => !upsertedIds.has(e.id)).map(e => e.id);
-    let deleted = 0;
-    if (fetchTruncated) {
-      // A truncated fetch means "not in finalEvents" proves nothing — the
-      // missing contract(s) may simply have sorted past MAX_PAGES this run.
-      // Deleting here on that basis is exactly the bug this guard exists to
-      // stop (see MAX_PAGES's comment). Skip cleanup entirely this run; the
-      // next successful, untruncated sync will catch any genuine
-      // cancellation just the same.
-      if (toDelete.length > 0) console.warn(`Skipping cleanup of ${toDelete.length} event(s) -- this run's LMS fetch was truncated (hit MAX_PAGES), so "missing" cannot be trusted as "cancelled": ${toDelete.join(", ")}`);
-    } else if (toDelete.length > 0) {
-      const { error: delErr } = await sb.from("events").delete().in("id", toDelete);
-      if (delErr) console.error("Delete cancelled LMS events error:", delErr);
-      else deleted = toDelete.length;
-      console.log(`Cleaned up ${deleted} cancelled/removed LMS events: ${toDelete.join(", ")}`);
+    const deleted = 0;
+    if (toDelete.length > 0) {
+      console.warn(`${toDelete.length} previously-synced event(s) were NOT in this run's LMS fetch -- NOT auto-deleting (disabled, see comment above). Review manually if any are genuinely cancelled: ${toDelete.join(", ")}`);
     }
 
     // ── Update sync log ──
@@ -1013,8 +911,8 @@ Deno.serve(async (req) => {
     // here as a non-fatal warning slot rather than adding a schema column
     // for something that, with MAX_PAGES raised, should be rare.
     const truncationWarning = fetchTruncated
-      ? `WARNING: LMS fetch hit MAX_PAGES (${MAX_PAGES} pages / ${MAX_PAGES * PAGE_SIZE} rows) -- some contracts may not have been seen this run. Cleanup of cancelled/removed events was skipped this run as a result.`
-      : null;
+      ? `WARNING: LMS fetch hit MAX_PAGES (${MAX_PAGES} pages / ${MAX_PAGES * PAGE_SIZE} rows) -- some contracts may not have been seen this run.`
+      : (toDelete.length > 0 ? `${toDelete.length} event(s) missing from this fetch -- NOT auto-deleted (disabled). Review: ${toDelete.join(", ")}` : null);
     if (logId) {
       await sb.from("lms_sync_log").update({
         completed_at: new Date().toISOString(),
