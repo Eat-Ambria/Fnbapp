@@ -18,7 +18,19 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const LMS_BASE = "https://gyv.inqcrm.in";
 const PAGE_SIZE = 10; // LMS returns 10 per page
-const MAX_PAGES = 50; // safety cap
+// 2026-11-14: was 50 (500 rows) -- venue contract volume has sat at 522-525
+// rows for at least the last two weeks (lms_sync_log.venue_count), meaning
+// EVERY sync since then silently dropped everything past row 500 with zero
+// indication anything was wrong. Worse: the "clean up cancelled/removed LMS
+// events" pass below deletes any previously-synced event that didn't come
+// back in this run's fetch -- so a contract that happened to sort past the
+// cutoff wasn't just missing from the app, it got its events/event_items/
+// event_function_plans rows permanently hard-deleted (ON DELETE CASCADE,
+// no tombstone) as a false "cancelled in LMS" the very next sync. Confirmed
+// against a real incident: a finalized, sent-to-kitchen FP was wiped this
+// way. 500 rows of headroom here is cheap; silently truncating a sync that
+// feeds a delete pass is not.
+const MAX_PAGES = 500; // safety cap (5000 rows) -- see note above
 
 // Strip financial fields from LMS raw data before storing
 function stripFinancials(row: any): any {
@@ -100,20 +112,28 @@ async function lmsPost(endpoint: string, body: Record<string, string>): Promise<
 }
 
 // ── Paginated fetch ──
+// truncated=true means the loop exhausted MAX_PAGES while the LAST page
+// fetched was still full (PAGE_SIZE rows) -- i.e. there was more data this
+// run never saw, as opposed to legitimately running out of pages. Callers
+// must treat this as a reason NOT to trust "missing from this fetch" as
+// "cancelled in LMS" (see the cleanup pass below) -- see MAX_PAGES's own
+// comment for the incident this caused.
 async function fetchAllPages(
   endpoint: string,
   baseBody: Record<string, string>,
   responseKey: string
-): Promise<any[]> {
+): Promise<{ rows: any[]; truncated: boolean }> {
   const all: any[] = [];
+  let truncated = false;
   for (let page = 1; page <= MAX_PAGES; page++) {
     const body = { ...baseBody, page_limit: String(page) };
     const json = await lmsPost(endpoint, body);
     const rows = json[responseKey] || [];
     all.push(...rows);
     if (rows.length < PAGE_SIZE) break; // last page
+    if (page === MAX_PAGES) truncated = true;
   }
-  return all;
+  return { rows: all, truncated };
 }
 
 // ── Master data: fetch + cache ──
@@ -596,20 +616,21 @@ Deno.serve(async (req) => {
     console.log(`Masters: ${Object.keys(masters.venues).length} venues, ${Object.keys(masters.menus).length} menus, ${Object.keys(masters.functions).length} functions`);
 
     // ── Fetch Venue Contracts ──
-    const venueRows = await fetchAllPages(
+    const { rows: venueRows, truncated: venueTruncated } = await fetchAllPages(
       "/api/v1/processerp_api/get_venue_contract_information_list",
       { loggeduserid: userId, fromdate: fromDate, uptodated: uptoDate, venue_datetype: "function_date" },
       "Contractinfo"
     );
-    console.log(`Venue contracts fetched: ${venueRows.length} rows`);
+    console.log(`Venue contracts fetched: ${venueRows.length} rows${venueTruncated ? " (TRUNCATED -- hit MAX_PAGES)" : ""}`);
 
     // ── Fetch Catering Contracts ──
-    const cateringRows = await fetchAllPages(
+    const { rows: cateringRows, truncated: cateringTruncated } = await fetchAllPages(
       "/api/v1/processerp_api/get_catering_contract_information_list",
       { loggeduserid: userId, fromdate: fromDate, uptodated: uptoDate, cater_datetype: "function_date" },
       "Contractinfo"
     );
-    console.log(`Catering contracts fetched: ${cateringRows.length} rows`);
+    console.log(`Catering contracts fetched: ${cateringRows.length} rows${cateringTruncated ? " (TRUNCATED -- hit MAX_PAGES)" : ""}`);
+    const fetchTruncated = venueTruncated || cateringTruncated;
 
     // ── Transform all rows to FnB events ──
     const allEvents: any[] = [];
@@ -863,7 +884,15 @@ Deno.serve(async (req) => {
 
     const toDelete = (existingLms || []).filter(e => !upsertedIds.has(e.id)).map(e => e.id);
     let deleted = 0;
-    if (toDelete.length > 0) {
+    if (fetchTruncated) {
+      // A truncated fetch means "not in finalEvents" proves nothing — the
+      // missing contract(s) may simply have sorted past MAX_PAGES this run.
+      // Deleting here on that basis is exactly the bug this guard exists to
+      // stop (see MAX_PAGES's comment). Skip cleanup entirely this run; the
+      // next successful, untruncated sync will catch any genuine
+      // cancellation just the same.
+      if (toDelete.length > 0) console.warn(`Skipping cleanup of ${toDelete.length} event(s) -- this run's LMS fetch was truncated (hit MAX_PAGES), so "missing" cannot be trusted as "cancelled": ${toDelete.join(", ")}`);
+    } else if (toDelete.length > 0) {
       const { error: delErr } = await sb.from("events").delete().in("id", toDelete);
       if (delErr) console.error("Delete cancelled LMS events error:", delErr);
       else deleted = toDelete.length;
@@ -871,6 +900,13 @@ Deno.serve(async (req) => {
     }
 
     // ── Update sync log ──
+    // Status stays "success" under truncation (the sync itself didn't fail,
+    // it upserted everything it legitimately saw) -- error_message is reused
+    // here as a non-fatal warning slot rather than adding a schema column
+    // for something that, with MAX_PAGES raised, should be rare.
+    const truncationWarning = fetchTruncated
+      ? `WARNING: LMS fetch hit MAX_PAGES (${MAX_PAGES} pages / ${MAX_PAGES * PAGE_SIZE} rows) -- some contracts may not have been seen this run. Cleanup of cancelled/removed events was skipped this run as a result.`
+      : null;
     if (logId) {
       await sb.from("lms_sync_log").update({
         completed_at: new Date().toISOString(),
@@ -880,6 +916,7 @@ Deno.serve(async (req) => {
         total_upserted: upserted,
         total_skipped: skipped,
         total_deleted: deleted,
+        error_message: truncationWarning,
       }).eq("id", logId);
     }
 
@@ -891,6 +928,7 @@ Deno.serve(async (req) => {
       events_skipped: skipped,
       events_deleted: deleted,
       events_renamed: renamedCount,
+      truncated: fetchTruncated,
       sync_window: `${fromDate} → ${uptoDate}`,
     };
     console.log("LMS Sync complete:", result);
