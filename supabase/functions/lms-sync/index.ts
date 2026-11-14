@@ -537,12 +537,17 @@ async function migrateEventId(sb: any, oldRow: any, newId: string): Promise<void
     if (error) console.error(`migrateEventId: carry-over update ${newId} failed:`, error);
   }
 
-  // The old row is fully drained now — delete it immediately rather than
-  // leaving it for the "clean up cancelled" pass below, which would delete
-  // it anyway but without this context (and without having saved anything
-  // off it first).
-  const { error: delErr } = await sb.from("events").delete().eq("id", oldRow.id);
-  if (delErr) console.error(`migrateEventId: delete old row ${oldRow.id} failed:`, delErr);
+  // 2026-11-14: tombstone the old row instead of hard-deleting it -- no
+  // automated/sync process should ever issue a real DELETE on events,
+  // full stop, after today's incident. The old row is already fully
+  // drained (every child table above was re-pointed at newId before this
+  // point, and this row carries no new work of its own), so there is
+  // nothing left to lose either way -- this is strictly about never again
+  // letting a sync process be the one holding the delete trigger. A real,
+  // permanent removal (if ever wanted) is an admin-only action from the
+  // app's own UI, same as any other delete.
+  const { error: delErr } = await sb.from("events").update({ is_deleted: true }).eq("id", oldRow.id);
+  if (delErr) console.error(`migrateEventId: tombstone old row ${oldRow.id} failed:`, delErr);
 }
 
 // ══════════════════════════════════════════════════════════════════
