@@ -135,11 +135,22 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // "View FP" on a list card — a lightweight peek at the Function Plan print
   // view without leaving the list for the full item-builder (selEvId's flow).
   var [fpViewEvId, setFpViewEvId] = useState(null);
+  // 'fp' = the card's own "FP" button (full Function Plan print, unchanged);
+  // 'menu' = the new "Print Menu" button (plain dish-list print) — same
+  // modal, same autoOpen* prop pair EventMenuBuilderView already exposes
+  // for Booked Functions / Function Plans Hub's own Print Menu shortcuts.
+  var [fpPrintMode, setFpPrintMode] = useState('fp');
   // A notification click (App.jsx's openEventFP) sets this to jump straight
   // to that event's FP print — one-shot, same as fpViewEvId's own click-to-
   // open flow, just triggered from outside instead of a card's "FP" button.
   useEffect(function() {
     if (!openFPEventId) return;
+    // A Print Menu click that self-closed via one of the modal's own
+    // defensive early-returns below (event vanished from `events`, or the
+    // Head Chef gate) clears fpViewEvId WITHOUT resetting fpPrintMode back
+    // to 'fp' — reset it explicitly here too, so a notification click can
+    // never inherit a stale 'menu' and open the wrong print view.
+    setFpPrintMode('fp');
     setFpViewEvId(openFPEventId);
     if (onOpenedFP) onOpenedFP();
   // eslint-disable-next-line
@@ -1643,7 +1654,16 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                       </span>
 
                       <span style={{ minWidth: 0, flex: 1 }}>
-                        <span style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
+                        {/* The top-right overlay (Print Menu + FP buttons,
+                            below) paints over this row's right edge since it
+                            has no z-index relation to the card's own layout —
+                            it used to be one ~60px "FP" pill, now it's ~104px
+                            with the added Print Menu icon, which was enough
+                            to actually hide the Today/FP-status badges on a
+                            narrow phone instead of just trimming blank space.
+                            Reserving real padding here, not just on the card
+                            itself, keeps this first line clear of it. */}
+                        <span style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap", paddingRight: isMobile ? 96 : 112 }}>
                           <span style={{ fontFamily: K.fontBody, fontSize: 16, fontWeight: 700, color: K.hdrTitle }}>{ev.guest || T2("Function")}</span>
                           {isToday && <span style={{ padding: "3px 10px", borderRadius: 999, fontFamily: K.fontBody, fontSize: 10.5,
                             fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase",
@@ -1726,17 +1746,36 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                         it to kitchen — "Locked" alone is still sales' own
                         working copy, not dispatched yet. */}
                     {(() => {
+                      // fpBlocked gates the Print Menu button too, not just FP —
+                      // same reasoning: the dish list can still change before
+                      // sales finalizes and sends the FP, so a kitchen-printed
+                      // production sheet off an unsent FP could go stale before
+                      // it's even used. (Booked Functions/Function Plans Hub
+                      // don't role-gate either button at all — that's fine,
+                      // their audience there is sales/admin, not Head Chef.)
                       var fpBlocked = isHeadChef && !fpSentToKitchen(ev);
                       return (
-                        <button onClick={function(e) { e.stopPropagation(); if (fpBlocked) return; setFpViewEvId(ev.id); }}
-                          disabled={fpBlocked}
-                          title={fpBlocked ? T2("Not sent to kitchen yet") : T2("View Function Plan") + " — " + fpSt.label}
-                          style={{ position: "absolute", top: 12, right: 16, display: "inline-flex", alignItems: "center", gap: 6,
-                            padding: "6px 12px", borderRadius: 999, fontFamily: K.fontBody, fontSize: 11.5, fontWeight: 700,
-                            background: fpBlocked ? "#FFFFFF" : fpSt.bg, border: "1px solid " + (fpBlocked ? K.cardWarmLine : fpSt.border),
-                            color: fpBlocked ? K.textFaint : fpSt.color, cursor: fpBlocked ? "not-allowed" : "pointer", opacity: fpBlocked ? 0.6 : 1 }}>
-                          <Icon name="clipboard" size={13} strokeWidth={2} />{T2("FP")}
-                        </button>
+                        <span style={{ position: "absolute", top: 12, right: 16, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          <button onClick={function(e) { e.stopPropagation(); if (fpBlocked) return; setFpPrintMode('menu'); setFpViewEvId(ev.id); }}
+                            disabled={fpBlocked}
+                            title={fpBlocked ? T2("Not sent to kitchen yet") : T2("Print Menu")}
+                            aria-label={T2("Print Menu")}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 6,
+                              padding: "6px 10px", borderRadius: 999, fontFamily: K.fontBody, fontSize: 11.5, fontWeight: 700,
+                              background: "#FFFFFF", border: "1px solid " + K.cardWarmLine,
+                              color: fpBlocked ? K.textFaint : K.hdrTitle, cursor: fpBlocked ? "not-allowed" : "pointer", opacity: fpBlocked ? 0.6 : 1 }}>
+                            🖨
+                          </button>
+                          <button onClick={function(e) { e.stopPropagation(); if (fpBlocked) return; setFpPrintMode('fp'); setFpViewEvId(ev.id); }}
+                            disabled={fpBlocked}
+                            title={fpBlocked ? T2("Not sent to kitchen yet") : T2("View Function Plan") + " — " + fpSt.label}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 6,
+                              padding: "6px 12px", borderRadius: 999, fontFamily: K.fontBody, fontSize: 11.5, fontWeight: 700,
+                              background: fpBlocked ? "#FFFFFF" : fpSt.bg, border: "1px solid " + (fpBlocked ? K.cardWarmLine : fpSt.border),
+                              color: fpBlocked ? K.textFaint : fpSt.color, cursor: fpBlocked ? "not-allowed" : "pointer", opacity: fpBlocked ? 0.6 : 1 }}>
+                            <Icon name="clipboard" size={13} strokeWidth={2} />{T2("FP")}
+                          </button>
+                        </span>
                       );
                     })()}
                     </div>
@@ -2660,14 +2699,15 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         // filtered to evFromDate — a notification can point at an event that
         // filter is currently hiding, so fall back to the full list.
         var fpEv = allEvs.find(function(e) { return e.id === fpViewEvId; }) || safeArr(events).find(function(e) { return e.id === fpViewEvId; });
-        if (!fpEv) { setFpViewEvId(null); return null; }
+        if (!fpEv) { setFpViewEvId(null); setFpPrintMode('fp'); return null; }
         // Defense in depth against the card button's own gate above — covers
         // a stray openFPEventId deep link too, not just the button click.
-        if (isHeadChef && !fpSentToKitchen(fpEv)) { setFpViewEvId(null); return null; }
+        if (isHeadChef && !fpSentToKitchen(fpEv)) { setFpViewEvId(null); setFpPrintMode('fp'); return null; }
         return (
           <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: C.bg, overflow: "auto" }}>
-            <EventMenuBuilderView event={fpEv} onClose={function(){ setFpViewEvId(null); loadFpStatuses(); }}
-              lang={lang} currentUser={currentUser} autoOpenPrint={true} />
+            <EventMenuBuilderView event={fpEv} onClose={function(){ setFpViewEvId(null); setFpPrintMode('fp'); loadFpStatuses(); }}
+              lang={lang} currentUser={currentUser}
+              autoOpenPrint={fpPrintMode === 'fp'} autoOpenMenuPrint={fpPrintMode === 'menu'} />
           </div>
         );
       })()}
