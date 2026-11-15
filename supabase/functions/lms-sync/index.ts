@@ -888,6 +888,28 @@ Deno.serve(async (req) => {
           console.log(`Id change for ${key} (${oldRow.id} -> ${newId}) doesn't match on venue/pax — leaving to normal insert/delete`);
           continue;
         }
+        // "appearing" only means newId isn't among this contract's ACTIVE
+        // rows (oldRowsByContract's own select already filters out
+        // is_deleted=true) — it says nothing about whether newId exists at
+        // all. migrateEventId's own existence check doesn't filter by
+        // is_deleted either, so without this, a newId that happens to
+        // already exist as a TOMBSTONED row (e.g. a prior duplicate the app's
+        // delete button removed, or an earlier cleanup pass) silently became
+        // a valid migration target: the old row's child data got moved onto
+        // it, the old row got tombstoned too, and the row now holding all the
+        // real data stayed invisible everywhere — a function disappearing
+        // from the app entirely despite its data being fully intact.
+        // Confirmed live (2026-11-15): exactly this happened to two
+        // contracts right after a manual duplicate-cleanup pass tombstoned
+        // their stale sibling ids. Skip and flag for a human instead of
+        // guessing whether a tombstoned target should be revived (it might
+        // be a deliberate admin delete) — same philosophy as the disabled
+        // auto-delete pass below.
+        const { data: targetRow } = await sb.from("events").select("id, is_deleted").eq("id", newId).maybeSingle();
+        if (targetRow?.is_deleted) {
+          console.warn(`Id change for ${key} (${oldRow.id} -> ${newId}): target ${newId} already exists but is tombstoned -- skipping migration, leaving ${oldRow.id} active. Review manually.`);
+          continue;
+        }
         try {
           await migrateEventId(sb, oldRow, newId);
           renamedCount++;
