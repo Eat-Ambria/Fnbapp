@@ -27,6 +27,23 @@ import { resolveDishHindi } from '../data/recipeData.js';
 export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionName, lang = "en", onClose }) {
   var T2 = function(s) { return T(s, lang); };
 
+  // Sub-venue (which hall/lawn at that venue) and session (Lunch/Dinner/
+  // Sundowner) aren't their own columns on events — they only ever arrive
+  // as part of the raw LMS contract snapshot, under different field names
+  // depending on whether it synced in as a venue or a catering contract.
+  // odc_location is the one real column equivalent, for outdoor events that
+  // have no "hall" at all, just the client's own site. chcd_address1 was
+  // tried here too, but it's a raw catering-side address/id reference (e.g.
+  // "36"), not a hall name — confirmed against live data, dropped.
+  var headerMeta = useMemo(function(){
+    var raw = (event && event.lms_raw) || {};
+    function clean(v) { return (v && String(v).trim()) || ''; }
+    return {
+      subVenue: clean(raw.address1) || clean(event && event.odc_location),
+      session: clean(raw.fiscd_session) || clean(raw.chcd_session),
+    };
+  }, [event]);
+
   var groups = useMemo(function(){
     var bySection = {}; // sectionName -> { name, order, dishes: [] }
     (dishItems || []).forEach(function(row){
@@ -76,10 +93,42 @@ export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionN
       </div>
 
       <div style={{ padding: "14px 18px", fontFamily: "Arial, Helvetica, sans-serif", color: "#000" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "1.5px solid #000", paddingBottom: 6, marginBottom: 10 }}>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>{(event && event.guest) || T2("Function")}</div>
-          <div style={{ fontSize: 10.5, color: "#333" }}>
-            {[event && event.venue, event && event.date, (event && event.pax != null) ? (event.pax + ' ' + T2('pax')) : null].filter(Boolean).join(' · ')}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "1.5px solid #000", paddingBottom: 6, marginBottom: 8 }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>{(event && event.guest) || T2("Function")}</div>
+            <div style={{ fontSize: 10.5, color: "#333" }}>
+              {[event && event.date, (event && event.pax != null) ? (event.pax + ' ' + T2('pax')) : null].filter(Boolean).join(' · ')}
+            </div>
+          </div>
+          {/* Venue/sub-venue/session/package — the things a kitchen or
+              service team actually needs to find at a glance before even
+              reading a single dish, so this is the one part of the sheet
+              that intentionally breaks the "plain list" rule with real
+              visual weight. */}
+          <div style={{ display: "flex", alignItems: "stretch", gap: 8, flexWrap: "wrap" }}>
+            {(event && (event.venue || headerMeta.subVenue)) && (
+              // background-color alone is NOT reliable here -- most browsers
+              // print with "background graphics" off by default, which drops
+              // the black fill but keeps the white text, printing invisible
+              // white-on-white. WebkitPrintColorAdjust/printColorAdjust:exact
+              // (same fix already used in FunctionPlanPrintView.jsx/
+              // MenuBuilderPreview.jsx) makes Chrome/Firefox keep it anyway;
+              // the border is a backstop for whatever doesn't.
+              <div style={{ background: "#000", color: "#fff", border: "2px solid #000", borderRadius: 4, padding: "5px 12px", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: 0.3 }}>{event.venue || headerMeta.subVenue}</div>
+                {event.venue && headerMeta.subVenue && <div style={{ fontSize: 9, opacity: 0.85 }}>{headerMeta.subVenue}</div>}
+              </div>
+            )}
+            {headerMeta.session && (
+              <div style={{ border: "1.5px solid #000", borderRadius: 4, padding: "5px 12px", display: "flex", alignItems: "center", fontSize: 11, fontWeight: 700 }}>
+                {headerMeta.session}
+              </div>
+            )}
+            {(event && event.menu_package) && (
+              <div style={{ border: "1.5px solid #000", borderRadius: 4, padding: "5px 12px", display: "flex", alignItems: "center", fontSize: 11, fontWeight: 700 }}>
+                {event.menu_package}
+              </div>
+            )}
           </div>
         </div>
 

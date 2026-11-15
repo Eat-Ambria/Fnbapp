@@ -32,7 +32,7 @@ export default defineConfig({
       manifest: {
         name: 'Ambria FnB Operations',
         short_name: 'Ambria FnB',
-        description: 'Kitchen operations, attendance, dispatch and prep tracking for Ambria Cuisines',
+        description: 'Kitchen operations, dispatch and prep tracking for Ambria Cuisines',
         // Were #6B1818 / #0A0908 from the old warm-red theme. theme_color tints
         // the Android status bar and background_color paints the splash behind
         // the icon, so it matches the icon tile's own green.
