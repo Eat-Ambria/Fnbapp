@@ -251,7 +251,7 @@ function getLmsPlateInfo(event) {
   };
 }
 
-export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locked, onRequestLock, onRequestMarkFinal, onRequestUnlock }) {
+export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, onOpenMenuPrint, locked, onRequestLock, onRequestMarkFinal, onRequestUnlock }) {
   var [drafts, setDrafts] = useState({});
   useEffect(function(){ setDrafts({}); }, [fp && fp.event_id]);
   var [showHistory, setShowHistory] = useState(false);
@@ -393,6 +393,11 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, locke
         <div style={{ fontSize: 12, color: K.textMuted }}>{T2("Feeds the printable Function Plan, and dietary notes flow into Kitchen Hub's existing special-instructions flags.")}</div>
         <div style={{ display: "flex", gap: 8 }}>
           <KButton variant="ghost" icon="clock" onClick={function(){ setShowHistory(true); }}>{T2("History")}{fpHistory.length > 0 ? " (" + fpHistory.length + ")" : ""}</KButton>
+          {/* Plain, dense, section-ordered list of just the selected dishes —
+              a back-of-house reference (what's actually on the menu, in Dish
+              Library section order), separate from the fancy branded Preview
+              Menu and from this FP's own full print (times/equipment/etc). */}
+          {onOpenMenuPrint && <KButton variant="ghost" icon="fileText" onClick={onOpenMenuPrint}>{T2("Print Menu")}</KButton>}
           <KButton variant="brand" icon="fileText" onClick={onOpenPrint}>{T2("View / Print FP")}</KButton>
           {/* Lock freezes editing while the team is still drafting, with no
               Kitchen notification. Mark Final sends it (locking it first if

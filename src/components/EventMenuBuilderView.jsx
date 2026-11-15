@@ -23,6 +23,7 @@ import { ConfigsPanel } from './ConfigsPanel.jsx';
 import { FunctionPlanTab, TIME_FIELDS, EQUIP_FIELDS } from './FunctionPlanTab.jsx';
 import { FunctionPlanPrintView } from './FunctionPlanPrintView.jsx';
 import MenuBuilderPreview from './MenuBuilderPreview.jsx';
+import { MenuPrintView } from './MenuPrintView.jsx';
 import { KModal } from './KitchenUI.jsx';
 import { K, type } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
@@ -147,6 +148,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // already null-checks it) and every write function below refuses to run.
   var [fpLoadError, setFpLoadError] = useState(null);
   var [showFPPrint, setShowFPPrint] = useState(false);
+  var [showMenuPrint, setShowMenuPrint] = useState(false);
   // V89 — Service/Crockery/Transport configs, fetched fresh right before print
   // so the "1 doc for kitchen + service" always reflects the latest saves,
   // rather than being kept in sync with ConfigsPanel's own internal state.
@@ -1368,6 +1370,19 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     );
   }
 
+  if (showMenuPrint) {
+    return (
+      <MenuPrintView
+        event={event}
+        dishItems={dishItems}
+        dishSectionOrder={dishSectionOrder}
+        dishSectionName={dishSectionName}
+        lang={lang}
+        onClose={function(){ setShowMenuPrint(false); }}
+      />
+    );
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: C.bg }}>
       {/* ── Top bar ── */}
@@ -1419,6 +1434,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
             </div>
           ) : (
             <FunctionPlanTab T2={T2} fp={fp} event={event} onSaveField={saveFPField} onOpenPrint={openFPPrint}
+              onOpenMenuPrint={function(){ setShowMenuPrint(true); }}
               locked={!!(fp && fp.locked)}
               onRequestLock={function(){ setFpLockModal('lockOnly'); }}
               onRequestMarkFinal={function(){ setFpLockModal('markFinal'); }}
