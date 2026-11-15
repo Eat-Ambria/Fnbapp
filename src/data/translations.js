@@ -34,7 +34,7 @@ const HI = {
   // EventDayTab.jsx's made-count column header, not just this file's own
   // qty-box label — "तैयार" (ready/prepared) reads naturally in all of
   // those, unlike a literal "made".
-  "Print Menu":"मेनू प्रिंट करें","Made":"तैयार","Left":"बचा",
+  "Print Menu":"मेनू प्रिंट करें","Made":"तैयार","Left":"बचा","Actual Used":"वास्तविक उपयोग",
   "Special:":"विशेष:","Extras from Sales:":"सेल्स एक्सट्रा:","Extras:":"एक्सट्रा:",
   "veg":"वेज","non-veg":"नॉन-वेज","prep done":"तैयारी हुई",
 

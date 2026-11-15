@@ -2,14 +2,15 @@
 // A plain two-column print of an event's SELECTED dishes, grouped and
 // ordered by their real Dish Library (dish_catalogue_sections) section —
 // not the package's own section layout, not a dept split. Built for
-// back-of-house use during/after service: each dish gets a blank Made/
-// Leftover box the kitchen fills in by hand, not the client-facing Preview
-// Menu (that one's the branded, paginated, photo-led version — a different
-// artifact for a different reader). Originally a dense single-page masonry
-// list with no write-in room at all — switched to a fixed 2-column layout
-// with a wide gutter specifically to make room for those two boxes per
-// dish; it now reliably runs to 2+ printed pages for a large menu, which is
-// an intentional trade against the old "fit one page" goal, not a bug.
+// back-of-house use during/after service: each dish gets three blank boxes
+// (Made / Actual Used / Left) the kitchen fills in by hand, not the
+// client-facing Preview Menu (that one's the branded, paginated, photo-led
+// version — a different artifact for a different reader). Originally a
+// dense single-page masonry list with no write-in room at all — switched
+// to a fixed 2-column layout with a wide gutter specifically to make room
+// for those boxes per dish; it now reliably runs to 2+ printed pages for a
+// large menu, which is an intentional trade against the old "fit one page"
+// goal, not a bug.
 //
 // dishSectionOrder/dishSectionName are passed in rather than re-derived here
 // on purpose — EventMenuBuilderView already computes these as the ONE
@@ -148,10 +149,11 @@ export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionN
         </div>
 
         {/* Fixed at 2 columns (not the old column-WIDTH masonry, which packed
-            as many narrow columns as fit) — each dish now needs room for a
-            Made/Leftover write-in box the kitchen fills in by hand after
-            service, which a narrow column has no space for. columnRule draws
-            the same dashed divider a manual grid would, for free. */}
+            as many narrow columns as fit) — each dish now needs room for
+            three Made/Actual Used/Left write-in boxes the kitchen fills in
+            by hand after service, which a narrow column has no space for.
+            columnRule draws the same dashed divider a manual grid would,
+            for free. */}
         <div style={{ columnCount: 2, columnGap: 44, columnRule: "1px dashed #bbb" }}>
           {groups.map(function(g){
             return (
@@ -159,24 +161,31 @@ export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionN
                 {/* breakInside:avoid above is only a request — a section
                     taller than a whole column/page gets split anyway, and
                     without breakAfter:avoid here the split can land right
-                    after the title or the Made/Left labels, stranding
-                    either one alone with no dishes under it. */}
+                    after the title or the column labels, stranding either
+                    one alone with no dishes under it. */}
                 <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, borderBottom: "1.5px solid #000", paddingBottom: 2, marginBottom: 4, breakAfter: "avoid" }}>
                   {g.name}
                 </div>
-                <div style={{ display: "flex", alignItems: "flex-end", gap: 8, paddingBottom: 3, fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, color: "#555", breakAfter: "avoid" }}>
+                {/* 3 write-in columns now (Made / Actual Used / Left) instead
+                    of 2 — narrower boxes (44px, was 54px) and a tighter gap
+                    (6px, was 8px) to fit all three without shrinking the
+                    dish-name column into illegibility; overflowWrap:anywhere
+                    on the name below absorbs the rest of the squeeze. */}
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 6, paddingBottom: 3, fontSize: 7.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.2, color: "#555", lineHeight: 1.15, breakAfter: "avoid" }}>
                   <span style={{ flex: 1, minWidth: 0 }} />
-                  <span style={{ width: 54, textAlign: "center", flexShrink: 0 }}>{T2("Made")}</span>
-                  <span style={{ width: 54, textAlign: "center", flexShrink: 0 }}>{T2("Left")}</span>
+                  <span style={{ width: 44, textAlign: "center", flexShrink: 0 }}>{T2("Made")}</span>
+                  <span style={{ width: 44, textAlign: "center", flexShrink: 0 }}>{T2("Actual Used")}</span>
+                  <span style={{ width: 44, textAlign: "center", flexShrink: 0 }}>{T2("Left")}</span>
                 </div>
                 {g.dishes.map(function(d){
                   return (
-                    <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: "1px dotted #999", breakInside: "avoid" }}>
+                    <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: "1px dotted #999", breakInside: "avoid" }}>
                       <span style={{ flex: 1, minWidth: 0, fontSize: 10, lineHeight: 1.3, overflowWrap: "anywhere" }}>
                         {d.name}{d.hindi ? <span style={{ color: "#666" }}> ({d.hindi})</span> : null}
                       </span>
-                      <span style={{ width: 54, height: 20, border: "1px solid #000", borderRadius: 3, flexShrink: 0 }} />
-                      <span style={{ width: 54, height: 20, border: "1px solid #000", borderRadius: 3, flexShrink: 0 }} />
+                      <span style={{ width: 44, height: 20, border: "1px solid #000", borderRadius: 3, flexShrink: 0 }} />
+                      <span style={{ width: 44, height: 20, border: "1px solid #000", borderRadius: 3, flexShrink: 0 }} />
+                      <span style={{ width: 44, height: 20, border: "1px solid #000", borderRadius: 3, flexShrink: 0 }} />
                     </div>
                   );
                 })}
