@@ -1,10 +1,15 @@
-// Ambria FnB — Menu Print View
-// A plain, dense, single-page-oriented print of an event's SELECTED dishes,
-// grouped and ordered by their real Dish Library (dish_catalogue_sections)
-// section — not the package's own section layout, not a dept split. Built
-// for back-of-house use (what's actually on the menu, section by section),
-// not the client-facing Preview Menu (that one's the branded, paginated,
-// photo-led version — a different artifact for a different reader).
+// Ambria FnB — Menu Print View ("Kitchen Quantity Sheet")
+// A plain two-column print of an event's SELECTED dishes, grouped and
+// ordered by their real Dish Library (dish_catalogue_sections) section —
+// not the package's own section layout, not a dept split. Built for
+// back-of-house use during/after service: each dish gets a blank Made/
+// Leftover box the kitchen fills in by hand, not the client-facing Preview
+// Menu (that one's the branded, paginated, photo-led version — a different
+// artifact for a different reader). Originally a dense single-page masonry
+// list with no write-in room at all — switched to a fixed 2-column layout
+// with a wide gutter specifically to make room for those two boxes per
+// dish; it now reliably runs to 2+ printed pages for a large menu, which is
+// an intentional trade against the old "fit one page" goal, not a bug.
 //
 // dishSectionOrder/dishSectionName are passed in rather than re-derived here
 // on purpose — EventMenuBuilderView already computes these as the ONE
@@ -76,7 +81,17 @@ export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionN
 
   return createPortal(
     <div className="menu-print-root" style={{ position: "fixed", inset: 0, zIndex: 200, background: "#fff", overflowY: "auto" }}>
-      <style>{"@media print { body * { visibility: hidden !important; } .menu-print-root, .menu-print-root * { visibility: visible !important; } .menu-print-root { position: absolute !important; inset: auto !important; left: 0 !important; top: 0 !important; width: 100% !important; height: auto !important; overflow: visible !important; } .menu-no-print { display: none !important; } }"}</style>
+      {/* Was visibility:hidden on everything else + position:absolute on this
+          root — on a one-page sheet (FunctionPlanPrintView.jsx's own print
+          CSS, unchanged) an absolutely positioned box never has to split
+          across pages, so that pattern never caught this: this sheet now
+          routinely runs 2+ pages, and an absolutely positioned box being
+          paginated is inconsistent across browsers (Firefox has a long-
+          standing bug cutting it off after page 1). display:none on every
+          OTHER body child + position:static on this one makes it ordinary
+          flowing page content instead, which every browser paginates the
+          same, normal way. */}
+      <style>{"@media print { body > *:not(.menu-print-root) { display: none !important; } .menu-print-root { position: static !important; inset: auto !important; overflow: visible !important; background: #fff !important; } .menu-no-print { display: none !important; } }"}</style>
 
       <div className="menu-no-print" style={{ position: "sticky", top: 0, zIndex: 1, background: C.surface, borderBottom: "1px solid " + C.border, padding: "12px 20px", display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
         <span style={{ marginRight: "auto", fontSize: 11.5, color: C.muted }}>
@@ -132,17 +147,36 @@ export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionN
           </div>
         </div>
 
-        <div style={{ columnWidth: 210, columnGap: 20 }}>
+        {/* Fixed at 2 columns (not the old column-WIDTH masonry, which packed
+            as many narrow columns as fit) — each dish now needs room for a
+            Made/Leftover write-in box the kitchen fills in by hand after
+            service, which a narrow column has no space for. columnRule draws
+            the same dashed divider a manual grid would, for free. */}
+        <div style={{ columnCount: 2, columnGap: 44, columnRule: "1px dashed #bbb" }}>
           {groups.map(function(g){
             return (
-              <div key={g.key} style={{ breakInside: "avoid", marginBottom: 8 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, borderBottom: "1px solid #888", paddingBottom: 1, marginBottom: 2 }}>
+              <div key={g.key} style={{ breakInside: "avoid", marginBottom: 12 }}>
+                {/* breakInside:avoid above is only a request — a section
+                    taller than a whole column/page gets split anyway, and
+                    without breakAfter:avoid here the split can land right
+                    after the title or the Made/Left labels, stranding
+                    either one alone with no dishes under it. */}
+                <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, borderBottom: "1.5px solid #000", paddingBottom: 2, marginBottom: 4, breakAfter: "avoid" }}>
                   {g.name}
+                </div>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 8, paddingBottom: 3, fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, color: "#555", breakAfter: "avoid" }}>
+                  <span style={{ flex: 1, minWidth: 0 }} />
+                  <span style={{ width: 54, textAlign: "center", flexShrink: 0 }}>{T2("Made")}</span>
+                  <span style={{ width: 54, textAlign: "center", flexShrink: 0 }}>{T2("Left")}</span>
                 </div>
                 {g.dishes.map(function(d){
                   return (
-                    <div key={d.name} style={{ fontSize: 9, lineHeight: 1.35 }}>
-                      {d.name}{d.hindi ? <span style={{ color: "#555" }}> ({d.hindi})</span> : null}
+                    <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: "1px dotted #999", breakInside: "avoid" }}>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 10, lineHeight: 1.3, overflowWrap: "anywhere" }}>
+                        {d.name}{d.hindi ? <span style={{ color: "#666" }}> ({d.hindi})</span> : null}
+                      </span>
+                      <span style={{ width: 54, height: 20, border: "1px solid #000", borderRadius: 3, flexShrink: 0 }} />
+                      <span style={{ width: 54, height: 20, border: "1px solid #000", borderRadius: 3, flexShrink: 0 }} />
                     </div>
                   );
                 })}

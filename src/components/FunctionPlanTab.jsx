@@ -393,8 +393,9 @@ export function FunctionPlanTab({ T2, fp, event, onSaveField, onOpenPrint, onOpe
         <div style={{ fontSize: 12, color: K.textMuted }}>{T2("Feeds the printable Function Plan, and dietary notes flow into Kitchen Hub's existing special-instructions flags.")}</div>
         <div style={{ display: "flex", gap: 8 }}>
           <KButton variant="ghost" icon="clock" onClick={function(){ setShowHistory(true); }}>{T2("History")}{fpHistory.length > 0 ? " (" + fpHistory.length + ")" : ""}</KButton>
-          {/* Plain, dense, section-ordered list of just the selected dishes —
-              a back-of-house reference (what's actually on the menu, in Dish
+          {/* Two-column, section-ordered list of just the selected dishes,
+              each with a blank Made/Leftover box to fill in by hand — a
+              back-of-house reference (what's actually on the menu, in Dish
               Library section order), separate from the fancy branded Preview
               Menu and from this FP's own full print (times/equipment/etc). */}
           {onOpenMenuPrint && <KButton variant="ghost" icon="fileText" onClick={onOpenMenuPrint}>{T2("Print Menu")}</KButton>}

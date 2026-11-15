@@ -54,6 +54,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   var FP_RANK = { none: 0, made: 1, locked: 2, sent: 3 };
   var [menuBuilderEvent, setMenuBuilderEvent] = useState(null);
   var [menuBuilderTab, setMenuBuilderTab]     = useState('items');
+  var [menuBuilderAutoPrint, setMenuBuilderAutoPrint] = useState(false);
   var [fpMap, setFpMap]         = useState({}); // event_id -> {locked, locked_by, sent_to_kitchen}
 
   // Only admins may open the Menu Builder from here — Head Chef (and
@@ -165,6 +166,15 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   function openMenuBuilder(ev, tab) {
     if (tab !== 'fp' && !isAdmin) return; // menu edits are admin-only from this list
     setMenuBuilderTab(tab || 'items');
+    setMenuBuilderAutoPrint(false); // only openMenuPrint below should ever set this true
+    setMenuBuilderEvent(ev);
+  }
+  // Jumps straight to the plain dish-list Print Menu (see MenuPrintView),
+  // same shortcut pattern as the FP button jumping into the Function Plan —
+  // viewing it is not an admin-only action (the FP tab itself isn't gated).
+  function openMenuPrint(ev) {
+    setMenuBuilderTab('fp');
+    setMenuBuilderAutoPrint(true);
     setMenuBuilderEvent(ev);
   }
   function closeMenuBuilder() {
@@ -172,6 +182,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
     loadFpStatuses();
     setMenuBuilderEvent(null);
     setMenuBuilderTab('items');
+    setMenuBuilderAutoPrint(false);
   }
 
   // Dropdown option lists, derived from whatever's actually in the data —
@@ -262,7 +273,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   if (menuBuilderEvent) {
     return (
       <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 100, background: C.bg }}>
-        <EventMenuBuilderView event={menuBuilderEvent} onClose={closeMenuBuilder} lang={lang} currentUser={currentUser} initialTab={menuBuilderTab} />
+        <EventMenuBuilderView event={menuBuilderEvent} onClose={closeMenuBuilder} lang={lang} currentUser={currentUser} initialTab={menuBuilderTab} autoOpenMenuPrint={menuBuilderAutoPrint} />
       </div>
     );
   }
@@ -416,6 +427,10 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
                     style={{ flex: 1, padding: "9px 10px", borderRadius: 8, background: fpSt.color, border: "none", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
                     📋 {T2("FP")}
                   </button>
+                  <button onClick={function(){ openMenuPrint(ev); }} title={T2("Print Menu")}
+                    style={{ flex: 1, padding: "9px 10px", borderRadius: 8, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+                    🖨 {T2("Menu")}
+                  </button>
                 </div>
               </div>
             );
@@ -483,6 +498,10 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
                   <button onClick={function(){ openMenuBuilder(ev, 'fp'); }} title={T2("Open Function Plan")}
                     style={{ padding: "5px 10px", borderRadius: 6, background: fpSt.color, border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
                     📋 {T2("FP")}
+                  </button>
+                  <button onClick={function(){ openMenuPrint(ev); }} title={T2("Print Menu")}
+                    style={{ padding: "5px 10px", borderRadius: 6, background: C.surface, border: "1px solid " + C.border, color: C.text, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                    🖨
                   </button>
                 </div>
               </div>

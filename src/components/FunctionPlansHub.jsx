@@ -26,6 +26,10 @@ function FunctionPlansHub({ events, lang, currentUser }) {
   const evList = safeArr(events);
 
   const [fpViewEvId, setFpViewEvId] = useState(null);
+  // 'fp' = the full Function Plan print (card's own click target, unchanged);
+  // 'menu' = the plain dish-list Print Menu, opened from the card's own
+  // print-icon button instead.
+  const [fpPrintMode, setFpPrintMode] = useState('fp');
   const [fpStatusMap, setFpStatusMap] = useState({});
   function loadFpStatusMap() {
     fetchAllRows(() => supabase.from('event_function_plans').select('event_id, locked, sent_to_kitchen, locked_by, created_by'))
@@ -57,16 +61,40 @@ function FunctionPlansHub({ events, lang, currentUser }) {
   function evCard(ev) {
     const st = fpStatusFor(ev);
     const vc = anaGp(ev.venue);
+    // Was a plain <button> — switched to a div with the same role/keyboard
+    // handling so a second, real <button> (the print-menu icon) can nest
+    // inside it without producing invalid button-in-button markup.
     return (
-      <button key={ev.id} onClick={() => setFpViewEvId(ev.id)} className="kh-sopcard kh-cardart-sm kh-rip" onPointerDown={ripple}
+      <div key={ev.id} role="button" tabIndex={0}
+        onClick={() => { setFpPrintMode('fp'); setFpViewEvId(ev.id); }}
+        onKeyDown={(e) => {
+          // e.target !== e.currentTarget means this bubbled up from a child
+          // (the print button) rather than the card itself — without this
+          // check, Enter/Space on the print button still opened the FP
+          // print here (preventDefault also blocks the click that button's
+          // own onClick would have fired), never the menu print it's for.
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFpPrintMode('fp'); setFpViewEvId(ev.id); }
+        }}
+        className="kh-sopcard kh-cardart-sm kh-rip" onPointerDown={ripple}
         style={{display:"block", width:"100%", textAlign:"left", padding:"14px 16px", borderRadius:16, cursor:"pointer",
           backgroundColor:K.cardWarm, border:`1px solid ${K.cardWarmLine}`, borderLeft:`4px solid ${vc.c}`,
           boxShadow:K.shadowCard, fontFamily:K.fontBody}}>
         <div style={{display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10}}>
           <span style={{display:"block", fontSize:15, fontWeight:700, letterSpacing:"-0.2px", color:K.hdrTitle,
             overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{ev.guest || T2("Function")}</span>
-          <span style={{flexShrink:0, padding:"3px 10px", borderRadius:K.rPill, fontSize:11, fontWeight:700,
-            background:st.bg, border:`1px solid ${st.border}`, color:st.color}}>{st.label}</span>
+          <span style={{display:"flex", alignItems:"center", gap:6, flexShrink:0}}>
+            <span style={{padding:"3px 10px", borderRadius:K.rPill, fontSize:11, fontWeight:700,
+              background:st.bg, border:`1px solid ${st.border}`, color:st.color}}>{st.label}</span>
+            <button onClick={(e) => { e.stopPropagation(); setFpPrintMode('menu'); setFpViewEvId(ev.id); }}
+              onKeyDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              title={T2("Print Menu")} aria-label={T2("Print Menu")}
+              style={{padding:"3px 8px", borderRadius:K.rPill, fontSize:11, fontWeight:700, cursor:"pointer",
+                background:K.surface, border:`1px solid ${K.line}`, color:K.hdrTitle}}>
+              🖨
+            </button>
+          </span>
         </div>
         <span style={{display:"flex", alignItems:"center", gap:7, marginTop:5, fontSize:12.5, color:K.hdrMeta, flexWrap:"wrap"}}>
           <Icon name="calendar" size={13} strokeWidth={1.9}/>{fmtDate(ev.date)}
@@ -75,7 +103,7 @@ function FunctionPlansHub({ events, lang, currentUser }) {
           <Icon name="users" size={13} strokeWidth={1.9}/>{ev.pax} pax
           {ev.venue && <><span style={{color:K.textFaint}}>·</span><span style={{color:vc.c, fontWeight:600}}>{ev.venue}</span></>}
         </span>
-      </button>
+      </div>
     );
   }
 
@@ -109,8 +137,9 @@ function FunctionPlansHub({ events, lang, currentUser }) {
 
       {fpEv && (
         <div style={{position:"fixed", inset:0, zIndex:2000, background:K.surface, overflow:"auto"}}>
-          <EventMenuBuilderView event={fpEv} onClose={() => { setFpViewEvId(null); loadFpStatusMap(); }}
-            lang={lang} currentUser={currentUser} autoOpenPrint={true} />
+          <EventMenuBuilderView event={fpEv} onClose={() => { setFpViewEvId(null); setFpPrintMode('fp'); loadFpStatusMap(); }}
+            lang={lang} currentUser={currentUser}
+            autoOpenPrint={fpPrintMode === 'fp'} autoOpenMenuPrint={fpPrintMode === 'menu'} />
         </div>
       )}
     </div>

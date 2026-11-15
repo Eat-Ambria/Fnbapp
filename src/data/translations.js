@@ -29,6 +29,12 @@ const HI = {
   "Dispatch window":"रवाना समय","Final Preparations":"अंतिम तैयारी",
   "D−1 Advance Preparation":"D−1 अग्रिम तैयारी","Start TODAY":"आज शुरू करें",
   "FP Menu":"FP मेनू","dishes":"व्यंजन","Dispatch by":"रवाना",
+  // "Made" is shared (flat, non-scoped T() lookup) with the FP status pill
+  // (BookedFunctionsView.jsx/FunctionPlansHub.jsx/MenuPackagesView.jsx) and
+  // EventDayTab.jsx's made-count column header, not just this file's own
+  // qty-box label — "तैयार" (ready/prepared) reads naturally in all of
+  // those, unlike a literal "made".
+  "Print Menu":"मेनू प्रिंट करें","Made":"तैयार","Left":"बचा",
   "Special:":"विशेष:","Extras from Sales:":"सेल्स एक्सट्रा:","Extras:":"एक्सट्रा:",
   "veg":"वेज","non-veg":"नॉन-वेज","prep done":"तैयारी हुई",
 

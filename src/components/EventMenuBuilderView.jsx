@@ -100,7 +100,7 @@ function formatFpHistoryValue(field, v) {
 // sales_items_meta reads (and, for a brand-new event, a legacy-menu
 // SEED WRITE — see seedFromLegacyMenuIfNeeded) that a public, anonymous
 // viewer has no business triggering.
-export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser = null, initialTab = 'items', autoOpenPrint = false, preload = null }) {
+export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser = null, initialTab = 'items', autoOpenPrint = false, autoOpenMenuPrint = false, preload = null }) {
   var T2 = function(s) { return T(s, lang); };
   var isMobile = useIsMobile();
 
@@ -119,6 +119,11 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   var [dishItems, setDishItems]     = useState(function(){ return (preload && preload.items) || []; });        // event_items rows
   var [salesMeta, setSalesMeta]     = useState(function(){ return preload ? buildSalesMetaMap(preload.salesMeta) : {}; });
   var [loading, setLoading]         = useState(function(){ return !preload; }); // preload already has everything synchronously
+  // Boot's own catch below just alerts and leaves dishItems empty — without
+  // this, both auto-open-print effects only checked `loading`, which goes
+  // false either way, so a failed boot still auto-opened a printable sheet
+  // showing 0 dishes/0 sections instead of refusing to open at all.
+  var [bootError, setBootError] = useState(false);
   var [seeding, setSeeding]         = useState(false);
   var [searchQ, setSearchQ]         = useState('');
   var [dietFilter, setDietFilter]   = useState('all');
@@ -187,11 +192,25 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   var autoOpenedRef = useRef(false);
   useEffect(function(){
     if (!autoOpenPrint || autoOpenedRef.current) return;
-    if (loading || fp == null) return;
+    if (loading || fp == null || bootError) return;
     autoOpenedRef.current = true;
     openFPPrint();
   // eslint-disable-next-line
-  }, [autoOpenPrint, loading, fp]);
+  }, [autoOpenPrint, loading, fp, bootError]);
+  // Same jump-straight-in pattern as autoOpenPrint above, but for the plain
+  // dish-list Print Menu (Booked Functions / Function Plans list "🖨 Menu"
+  // button) — only needs dishItems/sections loaded, not fp. bootError guard
+  // matters here specifically: without it, a failed boot still left
+  // `loading` false with dishItems == [], so this auto-opened a printable
+  // sheet showing "0 dishes · 0 sections" instead of refusing to open.
+  var autoOpenedMenuPrintRef = useRef(false);
+  useEffect(function(){
+    if (!autoOpenMenuPrint || autoOpenedMenuPrintRef.current) return;
+    if (loading || bootError) return;
+    autoOpenedMenuPrintRef.current = true;
+    setShowMenuPrint(true);
+  // eslint-disable-next-line
+  }, [autoOpenMenuPrint, loading, bootError]);
 
   var hasItems   = ITEM_HAVING_DEPTS.indexOf(activeDept) >= 0;
   var hasConfigs = activeDept !== 'kit' && !!(DEPT_CONFIGS[activeDept] && DEPT_CONFIGS[activeDept].length > 0);
@@ -390,6 +409,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     var cancelled = false;
     async function boot(){
       setLoading(true);
+      setBootError(false);
       try {
         await loadSalesMeta();
         var items = await seedFromLegacyMenuIfNeeded();
@@ -397,6 +417,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       } catch (e) {
         console.error('[EventMenuBuilder] boot failed:', e);
         alert(T2('A one-time menu setup step failed for this function — the Items tab may show as empty. Try reloading the page; if it keeps happening, contact support.'));
+        if (!cancelled) setBootError(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -1378,7 +1399,12 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         dishSectionOrder={dishSectionOrder}
         dishSectionName={dishSectionName}
         lang={lang}
-        onClose={function(){ setShowMenuPrint(false); }}
+        onClose={function(){
+          // Jumped straight here via the list's "🖨 Menu" button — same
+          // reasoning as showFPPrint's onClose above: go back to the list,
+          // not the full item-builder the user never asked to see.
+          if (autoOpenMenuPrint && onClose) onClose(); else setShowMenuPrint(false);
+        }}
       />
     );
   }
