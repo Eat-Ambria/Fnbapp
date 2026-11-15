@@ -652,6 +652,36 @@ Deno.serve(async (req) => {
       allEvents.push(...evs);
     }
 
+    // ── Collapse pagination duplicates BEFORE disambiguation ──
+    // fetchAllPages has been observed in production returning the exact same
+    // underlying LMS detail row twice within one run (same lms_raw.id /
+    // _lmsDetailId) — likely LMS's own pagination reordering under a
+    // concurrent write between page fetches. Each copy transforms to an
+    // event with the same base id AND the same _lmsDetailId. Left in place,
+    // the disambiguation step right below this used to see "2 entries, same
+    // base id" and conclude "2 different functions, same date" — appending
+    // the SAME suffix (built from that shared _lmsDetailId) to BOTH copies,
+    // which the "dedup by event id" step a few lines down then silently
+    // collapsed back into one row under the NEW suffixed id, while whatever
+    // id an earlier, pre-duplicate-bug sync had already created for this
+    // contract+date (unsuffixed, since that run only ever saw one row) was
+    // simply never produced again — and the cleanup pass that would once
+    // have removed it is deliberately disabled (see 2026-11-14 note below).
+    // Net effect, confirmed live: 50 real functions each permanently live
+    // under two ids. Collapsing same-detail-id duplicates here, before
+    // disambiguation ever runs, means a pagination duplicate can no longer
+    // be mistaken for a second function.
+    const seenDetailIds = new Set<string>();
+    const dedupedRaw: any[] = [];
+    for (const ev of allEvents) {
+      if (ev._lmsDetailId) {
+        const key = `${ev.lms_source}:${ev._lmsDetailId}`;
+        if (seenDetailIds.has(key)) continue;
+        seenDetailIds.add(key);
+      }
+      dedupedRaw.push(ev);
+    }
+
     // ── Disambiguate multi-function-same-date contracts ──
     // A contract with two functions on the same date (Haldi 08:30 + Wedding
     // 18:00, both 19-Sep) produces the same base id (LMS-V-{contract}-{date})
@@ -664,7 +694,7 @@ Deno.serve(async (req) => {
     // key from the source system, so it's guaranteed stable and unique) —
     // falling back to a slugified function name only if LMS ever omits it.
     const byBaseId = new Map<string, any[]>();
-    for (const ev of allEvents) {
+    for (const ev of dedupedRaw) {
       const list = byBaseId.get(ev.id);
       if (list) list.push(ev); else byBaseId.set(ev.id, [ev]);
     }
