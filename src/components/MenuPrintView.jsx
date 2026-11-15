@@ -174,8 +174,8 @@ export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionN
                 <div style={{ display: "flex", alignItems: "flex-end", gap: 6, paddingBottom: 3, fontSize: 7.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.2, color: "#555", lineHeight: 1.15, breakAfter: "avoid" }}>
                   <span style={{ flex: 1, minWidth: 0 }} />
                   <span style={{ width: 44, textAlign: "center", flexShrink: 0 }}>{T2("Made")}</span>
-                  <span style={{ width: 44, textAlign: "center", flexShrink: 0 }}>{T2("Actual Used")}</span>
                   <span style={{ width: 44, textAlign: "center", flexShrink: 0 }}>{T2("Left")}</span>
+                  <span style={{ width: 44, textAlign: "center", flexShrink: 0 }}>{T2("Actual Used")}</span>
                 </div>
                 {g.dishes.map(function(d){
                   return (
