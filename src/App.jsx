@@ -671,9 +671,14 @@ export default function App() {
       // session, restored automatically by the Supabase client, is that
       // authority), just a UI head start so the screen isn't blank for the
       // length of the data load.
+      // Tracked separately from the setCurrentUser call below so the
+      // getSession() check further down can tell "this device thought it
+      // was logged in" apart from "nobody has ever logged in here yet" --
+      // only the former should ever show a "please log in again" message.
+      let hadCachedSession = false;
       try {
         const suRaw = localStorage.getItem("ambria_session_user");
-        if(suRaw){ const emp=JSON.parse(suRaw); if(emp&&(emp.id||emp.staffListId||emp.staff_id)){ const rid=emp.id||emp.staffListId||emp.staff_id; setCurrentUser({...emp,id:rid,staffListId:emp.staffListId||rid}); } }
+        if(suRaw){ const emp=JSON.parse(suRaw); if(emp&&(emp.id||emp.staffListId||emp.staff_id)){ hadCachedSession = true; const rid=emp.id||emp.staffListId||emp.staff_id; setCurrentUser({...emp,id:rid,staffListId:emp.staffListId||rid}); } }
       } catch(e) {}
 
       // ── Hydrate config data from Supabase (replaces hardcoded constants) ──
@@ -738,6 +743,17 @@ export default function App() {
           } else if(!session){
             setCurrentUser(null);
             try{ localStorage.removeItem("ambria_session_user"); }catch(e){}
+            // Covers several causes that all land here identically -- a
+            // long-idle device's refresh token genuinely expired server-side
+            // (confirmed via Auth logs -- "Invalid Refresh Token: Refresh
+            // Token Not Found"), OR a PIN reset/deactivation that happened
+            // while this device was closed (both also kill the refresh
+            // token, same as the always-open-device cases below already
+            // message for) -- generic wording rather than naming one cause,
+            // since this branch can't tell which actually happened. Gated on
+            // hadCachedSession so a device that was never logged in doesn't
+            // show this on its very first open.
+            if(hadCachedSession) setForceLogoutMsg(T2("You've been signed out. Please log in again."));
           } else {
             const fresh = mergedStaff.find(s => s.auth_user_id === session.user.id);
             // Only treat "no matching/inactive row" as authoritative when
@@ -757,6 +773,13 @@ export default function App() {
               setCurrentUser(null);
               await supabase.auth.signOut({ scope: 'local' }).catch(()=>{});
               try{ localStorage.removeItem("ambria_session_user"); }catch(e){}
+              // Unlike the !session branch above, this one always had a
+              // genuinely valid GoTrue session to get here (we're inside the
+              // `else` of `!session`) -- so unlike that branch, there's no
+              // "device was never logged in" case to guard against; this is
+              // always a real "your access was updated while you were away"
+              // logout worth explaining.
+              setForceLogoutMsg(T2("Your access was updated. Please log in again."));
             } else if(fresh){
               let cached = null;
               try { const suRaw2 = localStorage.getItem("ambria_session_user"); cached = suRaw2 ? JSON.parse(suRaw2) : null; } catch(e) {}
