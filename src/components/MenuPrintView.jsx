@@ -24,14 +24,48 @@
 // menuDiffByDept/dishSectionOrder split.
 // Place in: src/components/MenuPrintView.jsx
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { resolveDishHindi } from '../data/recipeData.js';
 
-export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionName, lang = "en", onClose }) {
-  var T2 = function(s) { return T(s, lang); };
+export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionName, onClose }) {
+  // The sheet's own language is asked explicitly every time it's opened,
+  // independent of the app's own UI-language toggle — a kitchen print is
+  // read by whoever's at the pass that day, not necessarily the staff
+  // member who tapped the button, so defaulting silently to the current
+  // app language was the wrong call here.
+  var [printLang, setPrintLang] = useState(null);
+
+  if (!printLang) {
+    return createPortal(
+      <div className="menu-no-print" style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ background: C.surface, borderRadius: 12, padding: 28, width: 300, maxWidth: "90vw", textAlign: "center", boxShadow: "0 8px 30px rgba(0,0,0,0.25)" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 18 }}>
+            Print menu in / मेनू प्रिंट करें
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <button onClick={function(){ setPrintLang("en"); }}
+              style={{ padding: "12px 16px", borderRadius: 8, background: "#8A70C8", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              English
+            </button>
+            <button onClick={function(){ setPrintLang("hi"); }}
+              style={{ padding: "12px 16px", borderRadius: 8, background: "#8A70C8", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              हिंदी (Hindi)
+            </button>
+          </div>
+          <button onClick={onClose}
+            style={{ marginTop: 16, padding: "8px 16px", borderRadius: 8, background: "none", border: "1px solid " + C.border, color: C.muted, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>
+            Cancel
+          </button>
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
+  var T2 = function(s) { return T(s, printLang); };
 
   // Sub-venue (which hall/lawn at that venue) and session (Lunch/Dinner/
   // Sundowner) aren't their own columns on events — they only ever arrive
@@ -76,7 +110,7 @@ export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionN
     });
     out.sort(function(a, b){ return a.order - b.order; });
     return out;
-  }, [dishItems, dishSectionOrder, dishSectionName, lang]);
+  }, [dishItems, dishSectionOrder, dishSectionName, printLang]);
 
   var totalDishes = groups.reduce(function(n, g){ return n + g.dishes.length; }, 0);
 
@@ -181,7 +215,9 @@ export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionN
                   return (
                     <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: "1px dotted #999", breakInside: "avoid" }}>
                       <span style={{ flex: 1, minWidth: 0, fontSize: 10, lineHeight: 1.3, overflowWrap: "anywhere" }}>
-                        {d.name}{d.hindi ? <span style={{ color: "#666" }}> ({d.hindi})</span> : null}
+                        {printLang === "hi" && d.hindi
+                          ? <>{d.hindi}<span style={{ color: "#666" }}> ({d.name})</span></>
+                          : <>{d.name}{d.hindi ? <span style={{ color: "#666" }}> ({d.hindi})</span> : null}</>}
                       </span>
                       <span style={{ width: 44, height: 20, border: "1px solid #000", borderRadius: 3, flexShrink: 0 }} />
                       <span style={{ width: 44, height: 20, border: "1px solid #000", borderRadius: 3, flexShrink: 0 }} />
