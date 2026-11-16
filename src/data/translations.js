@@ -39,6 +39,97 @@ const HI = {
   "Special:":"विशेष:","Extras from Sales:":"सेल्स एक्सट्रा:","Extras:":"एक्सट्रा:",
   "veg":"वेज","non-veg":"नॉन-वेज","prep done":"तैयारी हुई",
 
+  // PRINT MENU — dish-catalogue section names (T() is an EXACT-match flat
+  // lookup, no case-insensitive fallback like resolveDishHindi has, so every
+  // casing variant actually seen in dish_catalogue_sections/events needs its
+  // own key here — see check_dishes_master_cols.sql-style audits run when
+  // this was built). Shared, non-scoped keys — safe since none collide with
+  // an unrelated existing key's intended meaning.
+  "Achar / Pickles":"अचार","Add-ons":"ऐड-ऑन","Aerated Drinks":"कार्बोनेटेड पेय",
+  "Amritsari Cuisine":"अमृतसरी व्यंजन","APC (Achar, Papad, Chutney, Raita)":"एपीसी (अचार, पापड़, चटनी, रायता)",
+  "Assembly Menu":"असेंबली मेनू","Assorted Indian Breads":"मिश्रित भारतीय ब्रेड",
+  "Awadhi Cuisine":"अवधी व्यंजन","Bite Size Menu":"बाइट साइज़ मेनू","Breakfast":"नाश्ता",
+  "Canned Juices":"डिब्बाबंद जूस","Chaat Station":"चाट स्टेशन","Chutney Station":"चटनी स्टेशन",
+  "Cold Desserts":"ठंडी मिठाइयाँ","Cold Station - Live":"कोल्ड स्टेशन - लाइव",
+  "Continental Mains":"कॉन्टिनेंटल मेन कोर्स","Continental Snacks":"कॉन्टिनेंटल स्नैक्स",
+  "Dimsum Counter":"डिमसम काउंटर","European Desserts":"यूरोपीय मिठाइयाँ","Fresh Juices":"ताज़े जूस",
+  "Galouti Counter":"गलौटी काउंटर","Grazing Table":"ग्रेज़िंग टेबल",
+  // "Fruit Counter" intentionally not redefined here — already translated
+  // ("फ्रूट काउंटर") further down this file; a duplicate key here would be
+  // dead weight (the later one always wins in a JS object literal).
+  "Grazing Tables":"ग्रेज़िंग टेबल्स","Guest Welcoming Starter":"अतिथि स्वागत स्टार्टर",
+  "Halwa Factory":"हलवा फैक्ट्री","Hot Beverages":"गरम पेय","Hot Desserts":"गरम मिठाइयाँ",
+  "Hyderabadi Cuisine":"हैदराबादी व्यंजन","Indian Desserts":"भारतीय मिठाइयाँ",
+  "Indian Main Course":"भारतीय मुख्य व्यंजन","Kachi Rasoi":"कच्ची रसोई","Kashmiri Cuisine":"कश्मीरी व्यंजन",
+  "Kebab Counter":"कबाब काउंटर","Kids Section":"बच्चों का सेक्शन","Lebanses":"लेबनीज़",
+  "Live Station":"लाइव स्टेशन","Meerut Ka Tandoor":"मेरठ का तंदूर","Mineral Water":"मिनरल वाटर",
+  "Mocktails":"मॉकटेल","Modern Indian Desserts":"मॉडर्न इंडियन मिठाइयाँ","Outside Vendor":"बाहरी वेंडर",
+  "Pan Asian Main":"पैन एशियन मेन कोर्स","Pan Asian Snacks":"पैन एशियन स्नैक्स","Papad":"पापड़",
+  "Pass Around Snacks":"पास अराउंड स्नैक्स","Phera Menu":"फेरा मेनू",
+  "Pizza and Bruschetta":"पिज़्ज़ा और ब्रुशेटा","Pre Dining Live":"प्री-डाइनिंग लाइव",
+  "Refreshing Station":"रिफ्रेशिंग स्टेशन","Rice Factory":"राइस फैक्ट्री","Salads":"सलाद",
+  "Shakes":"शेक्स","Soup Station":"सूप स्टेशन","Sushi Counter":"सुशी काउंटर",
+  "Tandoori Snacks":"तंदूरी स्नैक्स","Vol-au-Vents":"वोल-औ-वेंट","Vrath Counter":"व्रत काउंटर",
+  "Yogurt Station":"योगर्ट स्टेशन",
+
+  // PRINT MENU — session labels (raw LMS fiscd_session/chcd_session values)
+  "AM Tea":"सुबह की चाय","Dinner":"डिनर","High Tea":"हाई टी","Lunch":"लंच",
+  "PM Tea":"शाम की चाय","Sundowner":"संडाउनर",
+
+  // PRINT MENU — venue names (events.venue)
+  "Ambria Exotica":"एम्ब्रिया एक्सोटिका","Ambria Pushpanjali":"एम्ब्रिया पुष्पांजलि",
+  "Ambria Restro":"एम्ब्रिया रेस्ट्रो","Manaktala Farm":"मानकतला फार्म",
+  "Outdoor Catering (ODC)":"आउटडोर कैटरिंग (ओडीसी)","test":"टेस्ट",
+
+  // PRINT MENU — menu package tier names (events.menu_package)
+  "Bliss Non-Veg":"ब्लिस नॉन-वेज","Bliss Veg":"ब्लिस वेज","Custom":"कस्टम",
+  "Double Magnum - Non-Veg":"डबल मैग्नम - नॉन-वेज","Double Magnum - Veg":"डबल मैग्नम - वेज",
+  "Double Magnum Non Veg":"डबल मैग्नम नॉन वेज","Double Magnum Veg":"डबल मैग्नम वेज",
+  "Luxury Non Veg":"लग्ज़री नॉन वेज","Luxury Non-Veg":"लग्ज़री नॉन-वेज","Luxury Veg":"लग्ज़री वेज",
+  "Luxury Veg 2027":"लग्ज़री वेज 2027","Magnum - Non-Veg":"मैग्नम - नॉन-वेज",
+  "Magnum - Veg":"मैग्नम - वेज","Magnum Non Veg":"मैग्नम नॉन वेज","Magnum Veg":"मैग्नम वेज",
+  "Multi Cuisine Non Veg":"मल्टी क्यूज़ीन नॉन वेज","Multi Cuisine Veg":"मल्टी क्यूज़ीन वेज",
+  "Multi-Cuisine Non-Veg":"मल्टी-क्यूज़ीन नॉन-वेज","Multi-Cuisine Veg":"मल्टी-क्यूज़ीन वेज",
+  "Pearl Non - Veg":"पर्ल नॉन - वेज","Pearl Non Veg Menu":"पर्ल नॉन वेज मेनू",
+  "Pearl Non-Veg":"पर्ल नॉन-वेज","Pearl Veg":"पर्ल वेज","Pearl Veg Menu":"पर्ल वेज मेनू",
+  "Sapphire Non - Veg":"सैफायर नॉन - वेज","Sapphire Veg":"सैफायर वेज","Sapphire Veg Menu":"सैफायर वेज मेनू",
+  "Villa Menu Non-Veg":"विला मेनू नॉन-वेज",
+
+  // PRINT MENU — sub-venue/hall names (raw LMS address1 / odc_location).
+  // MKT/PA/AE suffixes are this company's own internal venue-code
+  // abbreviations (Manaktala/Pushpanjali/Ambria Exotica), not words — left
+  // as literal Roman-letter codes rather than force-transliterated into
+  // meaningless Devanagari. Everything else is a real hall/place name,
+  // rendered the way a Hindi speaker would actually write it.
+  "Aakasha":"आकाशा","Akasa Farm":"आकासा फार्म",
+  "ALSTONIA + BANANA TREE LAWN":"अल्स्टोनिया + बनाना ट्री लॉन","ALSTONIA LAWN MKT":"अल्स्टोनिया लॉन MKT",
+  "AMBER LAWN + GLASS HOUSE PA":"एम्बर लॉन + ग्लास हाउस PA","AMBER LAWN PA":"एम्बर लॉन PA",
+  "AURA LAWN + PANDAL AE":"ऑरा लॉन + पंडाल AE","AURA PANDAL AE":"ऑरा पंडाल AE",
+  "BANANA TREE LAWN + GLASSHOUSE + EMERALD LAWN":"बनाना ट्री लॉन + ग्लासहाउस + एमराल्ड लॉन",
+  "BANANA TREE LAWN MKT":"बनाना ट्री लॉन MKT","Barkat Farm":"बरकत फार्म","BARKAT FARM":"बरकत फार्म",
+  "CARNELIAN DECK PA":"कार्नेलियन डेक PA","Centuar Hotel":"सेंटॉर होटल",
+  "Chattarpur, farm, the aura":"छतरपुर, फार्म, द ऑरा","client residence":"क्लाइंट निवास",
+  "Client Residence":"क्लाइंट निवास","Cloud Nine Cottages, Sohna Road":"क्लाउड नाइन कॉटेजेस, सोहना रोड",
+  "DLF CORPORATE GREENS, Gurgaon":"डीएलएफ कॉर्पोरेट ग्रीन्स, गुड़गांव","dwarka":"द्वारका",
+  "EMERALD LAWAN + GLASS HOUSE MKT":"एमराल्ड लॉन + ग्लास हाउस MKT",
+  "EMERALD LAWN + BANANA TREE LAWN":"एमराल्ड लॉन + बनाना ट्री लॉन","EMERALD LAWN MKT":"एमराल्ड लॉन MKT",
+  "EMERALD+GLASS HOUSE+ ALSTONIA MKT":"एमराल्ड + ग्लास हाउस + अल्स्टोनिया MKT",
+  "FULL VENUE":"पूरा वेन्यू","G-22 , Krishna Farms ,Pushpanjali":"जी-22, कृष्णा फार्म्स, पुष्पांजलि",
+  "Gg":"जीजी","Glass House":"ग्लास हाउस","GLASS HOUSE BACK AREA":"ग्लास हाउस बैक एरिया",
+  "GLASS HOUSE MKT":"ग्लास हाउस MKT","GLASS HOUSE PA":"ग्लास हाउस PA",
+  "GNH Convention Centre":"जीएनएच कन्वेंशन सेंटर","Grand Opera":"ग्रैंड ओपेरा",
+  "gurudwara":"गुरुद्वारा","GURUDWARA":"गुरुद्वारा","Kapashera":"कापसहेड़ा","Kirti nagar":"कीर्ति नगर",
+  "Krishna Farms G-22":"कृष्णा फार्म्स जी-22","Kundan Farm":"कुंदन फार्म",
+  "PERSONAL FARM, KAPASHERA":"पर्सनल फार्म, कापसहेड़ा","Powergrid Field Hostel":"पावरग्रिड फील्ड हॉस्टल",
+  "Rajhans":"राजहंस","Restaurant Cafe":"रेस्टोरेंट कैफ़े",
+  "Restro Lawn + Restro Glass House":"रेस्ट्रो लॉन + रेस्ट्रो ग्लास हाउस","Restro-Lawn":"रेस्ट्रो-लॉन",
+  "Restro-Rooftop":"रेस्ट्रो-रूफटॉप","Sunheri Bagh":"सुनहरी बाग़","the aura retreat":"द ऑरा रिट्रीट",
+  "The Brick House":"द ब्रिक हाउस","The Palace Greens":"द पैलेस ग्रीन्स","The Umrao":"द उमराव",
+  "THE UMRAO ''VITA''":"द उमराव ''विटा''","Umrao":"उमराव",
+  "VALENCIA GLASS HOUSE + LAWN":"वेलेंसिया ग्लास हाउस + लॉन","VALENCIA GLASS HOUSE AE":"वेलेंसिया ग्लास हाउस AE",
+  "Valencia Swimming Pool + Lawn":"वेलेंसिया स्विमिंग पूल + लॉन","VILLA EXOTICA":"विला एक्सोटिका",
+  "VILLA MKT":"विला MKT","VILLA PA":"विला PA","Vista Farm":"विस्टा फार्म",
+
   // PREP STEPS
   "Mesa":"मेसा","Primary prep":"प्राथमिक तैयारी","Cooking":"खाना बनाना",
   "Final seasoning":"अंतिम मसाला","Garnish & plate":"सजावट व सर्विंग",
@@ -720,7 +811,15 @@ const HI = {
   "Save to Inventory":"इन्वेंटरी में सेव करें","Looking up in product databases…":"प्रोडक्ट डेटाबेस में खोज रहे हैं…",
   "Found in your inventory":"आपकी इन्वेंटरी में मिला","Product not found":"प्रोडक्ट नहीं मिला",
   "Barcode scanning not supported on this browser. Enter barcode manually.":"इस ब्राउज़र में बारकोड स्कैन नहीं होगा। मैन्युअल बारकोड दर्ज करें।",
-  "Halwai & Savoury":"Halwai & Savoury","Indian Tandoor":"Indian Tandoor","Chinese & Pan-Asian":"Chinese & Pan-Asian","Indian Main Course":"Indian Main Course","Indian Desserts":"Indian Desserts",
+  // "Indian Main Course"/"Indian Desserts" removed from this identity block
+  // on purpose — those two strings are shared with the Print Menu's
+  // dish_catalogue_sections section names (real Hindi defined earlier in
+  // this file), and a later duplicate key in one object literal silently
+  // wins over an earlier one, which was overriding that real translation
+  // with these two's English pass-through. Same words, same meaning in both
+  // places, so this is a correct fix for Recipe SOPs' own category list too,
+  // not just the Print Menu.
+  "Halwai & Savoury":"Halwai & Savoury","Indian Tandoor":"Indian Tandoor","Chinese & Pan-Asian":"Chinese & Pan-Asian",
   "Dish Ready!":"व्यंजन तैयार!","Take a photo of the completed dish before marking as done":"मार्क करने से पहले तैयार व्यंजन की फोटो लें",
   "Capture Photo":"फोटो लें","Retake":"दोबारा लें","Confirm Ready":"तैयार पुष्टि करें",
   "Starting camera…":"कैमरा शुरू हो रहा है…",

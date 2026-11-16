@@ -73,7 +73,7 @@ export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionN
       // here to match what was actually asked for, without forking the
       // underlying resolution itself.
       var rawName = (dishSectionName && dishSectionName[name]) || 'Extras';
-      var sectionName = rawName === 'Extras' ? T2('Other') : rawName;
+      var sectionName = rawName === 'Extras' ? T2('Other') : T2(rawName);
       var order = (dishSectionOrder && dishSectionOrder[name] != null) ? dishSectionOrder[name] : Infinity;
       var key = sectionName;
       if (!bySection[key]) bySection[key] = { key: key, name: sectionName, order: order, dishes: [] };
@@ -152,16 +152,22 @@ export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionN
         <div style={{ marginBottom: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "1.5px solid #000", paddingBottom: 6, marginBottom: 8 }}>
             <div style={{ fontSize: 15, fontWeight: 700 }}>{(event && event.guest) || T2("Function")}</div>
-            <div style={{ fontSize: 10.5, color: "#333" }}>
-              {[event && event.date, (event && event.pax != null) ? (event.pax + ' ' + T2('pax')) : null].filter(Boolean).join(' · ')}
-            </div>
           </div>
-          {/* Venue/sub-venue/session/package — the things a kitchen or
-              service team actually needs to find at a glance before even
+          {/* Date/pax/venue/sub-venue/session/package — the things a kitchen
+              or service team actually needs to find at a glance before even
               reading a single dish, so this is the one part of the sheet
               that intentionally breaks the "plain list" rule with real
-              visual weight. */}
+              visual weight. Date/pax used to be small plain text off to the
+              side, easy to miss next to these bold badges — now its own
+              badge in the same row, in the brand amber accent (C.amber/
+              amberBg) specifically so it reads as distinct from, not lower-
+              priority than, venue/session/package. */}
           <div style={{ display: "flex", alignItems: "stretch", gap: 8, flexWrap: "wrap" }}>
+            {(event && (event.date || event.pax != null)) && (
+              <div style={{ background: C.amberBg, color: C.amber, border: "2px solid " + C.amber, borderRadius: 4, padding: "5px 12px", display: "flex", alignItems: "center", fontSize: 12.5, fontWeight: 700, letterSpacing: 0.3, WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>
+                {[event.date, (event.pax != null) ? (event.pax + ' ' + T2('pax')) : null].filter(Boolean).join(' · ')}
+              </div>
+            )}
             {(event && (event.venue || headerMeta.subVenue)) && (
               // background-color alone is NOT reliable here -- most browsers
               // print with "background graphics" off by default, which drops
@@ -171,18 +177,18 @@ export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionN
               // MenuBuilderPreview.jsx) makes Chrome/Firefox keep it anyway;
               // the border is a backstop for whatever doesn't.
               <div style={{ background: "#000", color: "#fff", border: "2px solid #000", borderRadius: 4, padding: "5px 12px", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: 0.3 }}>{event.venue || headerMeta.subVenue}</div>
-                {event.venue && headerMeta.subVenue && <div style={{ fontSize: 9, opacity: 0.85 }}>{headerMeta.subVenue}</div>}
+                <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: 0.3 }}>{T2(event.venue || headerMeta.subVenue)}</div>
+                {event.venue && headerMeta.subVenue && <div style={{ fontSize: 9, opacity: 0.85 }}>{T2(headerMeta.subVenue)}</div>}
               </div>
             )}
             {headerMeta.session && (
               <div style={{ border: "1.5px solid #000", borderRadius: 4, padding: "5px 12px", display: "flex", alignItems: "center", fontSize: 11, fontWeight: 700 }}>
-                {headerMeta.session}
+                {T2(headerMeta.session)}
               </div>
             )}
             {(event && event.menu_package) && (
               <div style={{ border: "1.5px solid #000", borderRadius: 4, padding: "5px 12px", display: "flex", alignItems: "center", fontSize: 11, fontWeight: 700 }}>
-                {event.menu_package}
+                {T2(event.menu_package)}
               </div>
             )}
           </div>
