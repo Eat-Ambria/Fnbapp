@@ -31,6 +31,7 @@ import { T } from '../data/translations.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import { upsertDishMaster } from '../data/recipeData.js';
+import { formatMergeWarnings } from '../lib/dishRenameOps.js';
 import { SALES_DEPTS, ITEM_HAVING_DEPTS } from '../data/salesConfig.js';
 import { KToast, KModal } from './KitchenUI.jsx';
 import { uploadMenuPhoto, slugRecipeKey } from '../utils/helpers.js';
@@ -672,14 +673,23 @@ function DishSectionsEditor(props) {
       );
     }
     try {
-      const result = await withTimeout(props.onMergeDishes(sources, target), 'merge core (' + sources.length + ' source(s) -> "' + target + '")');
+      // 120s, not the default 15s — the merge now also scans events/proposals
+      // for section tags and outsourced flags, and moves kitchen_tracking rows
+      // one at a time, so it legitimately takes longer than before. The OLD
+      // default here would report "Timed out" while the real merge (which
+      // this timeout can't actually cancel) kept running in the background,
+      // inviting a second, concurrent merge attempt from a second click.
+      const result = await withTimeout(props.onMergeDishes(sources, target), 'merge core (' + sources.length + ' source(s) -> "' + target + '")', 120000);
       setDishMergeOpen(false);
       setDishMergeTarget('');
       clearBulk();
       await withTimeout(loadData(), 'reload sections after merge');
+      var warnNote = (result && result.bookingsWarnings && result.bookingsWarnings.length > 0)
+        ? ' Needs manual review: ' + formatMergeWarnings(result.bookingsWarnings)
+        : '';
       say(isRename ? 'Renamed' : 'Merged',
           (isRename ? 'Now called "' + target + '". ' : sources.length + ' dish(es) merged into "' + target + '". ')
-          + (result && result.affected != null ? result.affected + ' package(s) updated.' : ''));
+          + (result && result.affected != null ? result.affected + ' package(s) updated.' : '') + warnNote);
     } catch (e) {
       fail('Could not merge', e);
     } finally {

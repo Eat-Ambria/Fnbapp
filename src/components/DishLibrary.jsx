@@ -23,6 +23,7 @@ import { fetchAllRows } from '../lib/db.js';
 import { getCateringStoreItemsCached, opsSupabase } from '../lib/opsSupabase.js';
 import { transliterateName } from '../utils/helpers.js';
 import DishMappingModal from './DishMappingModal.jsx';
+import { renameOverrideKeys, renameOutsourced, ktKeyFor, classifyKtMove, formatMergeWarnings } from '../lib/dishRenameOps.js';
 
 // ═══ V74 duplicate-finder helpers ══════════════════════════════════
 // Normalize: lowercase, strip punctuation, collapse whitespace. Keeps
@@ -446,6 +447,20 @@ function DishLibrary(props) {
     if (sources.length === 0) return { renamed: 0, merged: 0 };
     var target = renameMap[sources[0]]; // performMergeCore only ever maps every source to the one same target
     var renamed = 0, merged = 0;
+    var srcs = sources.filter(function(s){ return s !== target; }); // defensive; every caller already excludes the target
+    var warnings = [];
+    var overridesMoved = 0, outsourcedMoved = 0, ktMoved = 0;
+    // Which events already had the TARGET dish selected before this merge —
+    // needed below to decide whether the target's in-house/outsourced status
+    // should win over a source's outsourced tag, same precedent as event_items'
+    // own hasTarget. Must be taken before the loop below renames any source
+    // rows to the target, or this snapshot would already see the merged state.
+    var preTargetEvents = {};
+    var preTargetRows = await withStepTimeout(
+      fetchAllRows(function(){ return supabase.from('event_items').select('event_id').eq('dish_name', target).order('event_id'); }),
+      'snapshot events already selecting "' + target + '"'
+    );
+    (preTargetRows || []).forEach(function(r){ preTargetEvents[r.event_id] = true; });
 
     // Matched by (fk, dish_name) rather than a surrogate id — proposal_items
     // has no `id` column at all (its primary key is proposal_id+dish_name),
@@ -518,6 +533,10 @@ function DishLibrary(props) {
     });
     var evUpdates = [];
     (evRows || []).forEach(function(ev) {
+      // Captured here too (not just from event_items above) since an event
+      // not yet migrated to event_items stores its kitchen dish list ONLY
+      // as this array — evRows is read before this block rewrites anything.
+      if (Array.isArray(ev.menu) && ev.menu.indexOf(target) !== -1) preTargetEvents[ev.id] = true;
       if (!Array.isArray(ev.menu) || ev.menu.length === 0) return;
       if (!ev.menu.some(function(n) { return sourceSet[n]; })) return;
       var seen = {};
@@ -538,7 +557,167 @@ function DishLibrary(props) {
       evRes.forEach(function(r) { if (r.error) throw r.error; });
     }
 
-    return { renamed: renamed, merged: merged };
+    // ── Step C: kitchen_tracking — runs right after events.menu, BEFORE
+    // Steps A/B below. See MEMORY.md for the full reasoning: a chef's tap
+    // landing in the short window between "menu now shows the target name"
+    // and "progress moved" is safer to happen AFTER this step (it just gets
+    // reported as a conflict, nothing lost) than before it (it would
+    // silently recreate a source row that nothing else will ever look at
+    // again) — so this must run as soon as possible after events.menu
+    // actually changes what Kitchen shows, not after Steps A/B's unrelated
+    // (and potentially slow, on a large catalogue) events/proposals scans,
+    // which only widen that window for no benefit (an adversarial review
+    // caught this — Steps A/B don't affect what Kitchen displays at all).
+    for (var si = 0; si < srcs.length; si++) {
+      var src = srcs[si];
+      // Guard against a name that would collide with this table's own
+      // special key shapes (a legacy position-based dish_key is just
+      // "<evId>|<digits>", with no way to tell it apart from a real dish
+      // named entirely in digits; a literal backslash would break the LIKE
+      // escaping below). Flag for manual review rather than risk either.
+      if (/^\d+$/.test(src) || /^\d+$/.test(target) || src.indexOf('\\') !== -1) {
+        warnings.push({ kind: 'kt-skipped-name', name: src });
+        continue;
+      }
+      var perEventRows = (await withStepTimeout(
+        fetchAllRows(function(){ return supabase.from('kitchen_tracking').select('ev_id, dish_key, data, key_ts, client_write_ts').like('dish_key', '%|' + src).order('ev_id'); }),
+        'find per-event kitchen_tracking rows for "' + src + '"'
+      )).filter(function(r){ return r.dish_key === r.ev_id + '|' + src && r.ev_id.indexOf('__combined_') !== 0; });
+      var combinedRows = (await withStepTimeout(
+        fetchAllRows(function(){ return supabase.from('kitchen_tracking').select('ev_id, dish_key, data, key_ts, client_write_ts').eq('dish_key', 'dish|' + src); }),
+        'find combined-bucket kitchen_tracking rows for "' + src + '"'
+      )).filter(function(r){ return r.ev_id.indexOf('__combined_') === 0; });
+      var srcRows = perEventRows.concat(combinedRows);
+      if (srcRows.length === 0) continue;
+      // Fetch any rows already at the target key, chunked so the .in() url
+      // stays a sane length on a large merge. The .in().in() below filters
+      // the cross product of these two lists, which CAN return extra rows
+      // beyond the exact (ev_id, dish_key) pairs intended — but every
+      // lookup below is keyed by a row's own real (ev_id, dish_key), never
+      // by an assumed pairing from this chunk, so an extra row just goes
+      // unused rather than ever causing a wrong match (verified by
+      // adversarial review — do not "optimize" this into per-pair queries
+      // without re-confirming that reasoning still holds).
+      var toKeys = srcRows.map(function(r){ return ktKeyFor(r.ev_id, target); });
+      var tgtByKey = {};
+      for (var ci = 0; ci < toKeys.length; ci += 50) {
+        var chunkEvIds = srcRows.slice(ci, ci + 50).map(function(r){ return r.ev_id; });
+        var chunkKeys = toKeys.slice(ci, ci + 50);
+        var tRes = await withStepTimeout(
+          supabase.from('kitchen_tracking').select('ev_id, dish_key, data, key_ts').in('ev_id', chunkEvIds).in('dish_key', chunkKeys),
+          'fetch existing target kitchen_tracking rows (chunk ' + (ci / 50 + 1) + ')'
+        );
+        if (tRes.error) throw tRes.error;
+        (tRes.data || []).forEach(function(r){ tgtByKey[r.ev_id + '\u0000' + r.dish_key] = r; });
+      }
+      for (var ri = 0; ri < srcRows.length; ri++) {
+        var srcRow = srcRows[ri];
+        var toKey = ktKeyFor(srcRow.ev_id, target);
+        var tgtRow = tgtByKey[srcRow.ev_id + '\u0000' + toKey] || null;
+        var verdict = classifyKtMove(srcRow, tgtRow);
+        if (verdict === 'conflict') {
+          warnings.push({ kind: 'kt-conflict', ev_id: srcRow.ev_id, fromKey: srcRow.dish_key, toKey: toKey });
+          continue;
+        }
+        await withStepTimeout((async function(){
+          if (verdict === 'move') {
+            // Never copy client_id from the source — the tablet that wrote
+            // it would treat a copy bearing its own id as its own echo and
+            // ignore the realtime INSERT, so it would never see its own
+            // dish's progress show up under the new name.
+            var ins = await supabase.from('kitchen_tracking').insert({
+              ev_id: srcRow.ev_id, dish_key: toKey, data: srcRow.data || {},
+              key_ts: srcRow.key_ts || {}, client_id: 'dish-merge', client_write_ts: srcRow.client_write_ts,
+            });
+            if (ins.error) {
+              if (ins.error.code === '23505') { warnings.push({ kind: 'kt-conflict-race', ev_id: srcRow.ev_id, fromKey: srcRow.dish_key, toKey: toKey }); return; }
+              throw ins.error;
+            }
+          }
+          // Guarded delete — if a chef's tap changed this exact row between
+          // our read and now, client_write_ts won't match and nothing is
+          // deleted; both copies are then kept rather than risking the loss
+          // of a tap that landed in that window.
+          var delQ = supabase.from('kitchen_tracking').delete().eq('ev_id', srcRow.ev_id).eq('dish_key', srcRow.dish_key);
+          delQ = srcRow.client_write_ts == null ? delQ.is('client_write_ts', null) : delQ.eq('client_write_ts', srcRow.client_write_ts);
+          var del = await delQ.select('ev_id');
+          if (del.error) throw del.error;
+          if ((del.data || []).length === 0) { warnings.push({ kind: 'kt-source-changed', ev_id: srcRow.ev_id, fromKey: srcRow.dish_key }); return; }
+          ktMoved++;
+        })(), 'move kitchen_tracking ' + srcRow.ev_id + ' ' + src + '→' + target);
+      }
+    }
+
+    // ── Step A: events.menu_section_overrides + events.outsourced_dishes ──
+    // Neither is touched by anything above — a renamed dish's per-event
+    // section tag and outsourced flag were being silently orphaned under the
+    // old name forever. Scanned unfiltered (same as the events.menu scan
+    // above) since both are JSONB and can't be queried by key/element via
+    // .in(). events.menu is deliberately NOT re-selected or re-written here
+    // (it's a TOAST-risk column for realtime — see MEMORY.md).
+    var evMeta = await withStepTimeout(
+      fetchAllRows(function(){ return supabase.from('events').select('id, menu_section_overrides, outsourced_dishes').order('id'); }),
+      'scan events for section tags / outsourced flags'
+    );
+    var evCand = (evMeta || []).filter(function(e){
+      var o = e.menu_section_overrides || {};
+      var a = Array.isArray(e.outsourced_dishes) ? e.outsourced_dishes : [];
+      return srcs.some(function(s){ return Object.prototype.hasOwnProperty.call(o, s) || a.indexOf(s) !== -1; });
+    });
+    if (evCand.length > 0) {
+      var evTagRes = await withStepTimeout(
+        Promise.all(evCand.map(async function(cand){
+          // Re-read immediately before writing — same read-modify-write
+          // discipline as menuItemOps.js's mergeOverridesForWrite, so this
+          // doesn't clobber a concurrent edit to either column.
+          var fresh = await supabase.from('events').select('id, menu_section_overrides, outsourced_dishes').eq('id', cand.id).single();
+          if (fresh.error) throw fresh.error;
+          var ov = renameOverrideKeys(fresh.data.menu_section_overrides || {}, srcs, target);
+          var os = renameOutsourced(fresh.data.outsourced_dishes, srcs, target, !!preTargetEvents[cand.id]);
+          if (ov.warning) warnings.push(Object.assign({ table: 'events', id: cand.id }, ov.warning));
+          if (os.warning) warnings.push(Object.assign({ id: cand.id }, os.warning));
+          if (!ov.changed && !os.changed) return null;
+          var patch = {};
+          if (ov.changed) { patch.menu_section_overrides = ov.next; overridesMoved++; }
+          if (os.changed) { patch.outsourced_dishes = os.next; outsourcedMoved++; }
+          var w = await supabase.from('events').update(patch).eq('id', cand.id);
+          if (w.error) throw w.error;
+          return null;
+        })),
+        'rewrite tags/outsourced on ' + evCand.length + ' event(s)',
+        30000
+      );
+      void evTagRes;
+    }
+
+    // ── Step B: proposals.menu_section_overrides ── same idea, no outsourced column on proposals.
+    var propMeta = await withStepTimeout(
+      fetchAllRows(function(){ return supabase.from('proposals').select('id, menu_section_overrides').order('id'); }),
+      'scan proposals for section tags'
+    );
+    var propCand = (propMeta || []).filter(function(p){
+      var o = p.menu_section_overrides || {};
+      return srcs.some(function(s){ return Object.prototype.hasOwnProperty.call(o, s); });
+    });
+    if (propCand.length > 0) {
+      await withStepTimeout(
+        Promise.all(propCand.map(async function(cand){
+          var fresh = await supabase.from('proposals').select('id, menu_section_overrides').eq('id', cand.id).single();
+          if (fresh.error) throw fresh.error;
+          var ov = renameOverrideKeys(fresh.data.menu_section_overrides || {}, srcs, target);
+          if (ov.warning) warnings.push(Object.assign({ table: 'proposals', id: cand.id }, ov.warning));
+          if (!ov.changed) return null;
+          overridesMoved++;
+          var w = await supabase.from('proposals').update({ menu_section_overrides: ov.next }).eq('id', cand.id);
+          if (w.error) throw w.error;
+          return null;
+        })),
+        'rewrite tags on ' + propCand.length + ' proposal(s)',
+        30000
+      );
+    }
+
+    return { renamed: renamed, merged: merged, overridesMoved: overridesMoved, outsourcedMoved: outsourcedMoved, ktMoved: ktMoved, warnings: warnings };
   }
 
   // ── Rename / Merge ───────────────────────────────────────────────
@@ -602,7 +781,14 @@ function DishLibrary(props) {
       if (delMst.error) throw delMst.error;
       sources.forEach(function(s) { deactivateDish(s); });
     }
-    return { affected: affected, bookingsRenamed: bookingsRes.renamed, bookingsMerged: bookingsRes.merged };
+    if (bookingsRes.warnings && bookingsRes.warnings.length > 0) {
+      bookingsRes.warnings.forEach(function(w){ console.warn('[merge] REVIEW ' + w.kind, w); });
+    }
+    return {
+      affected: affected, bookingsRenamed: bookingsRes.renamed, bookingsMerged: bookingsRes.merged,
+      overridesMoved: bookingsRes.overridesMoved || 0, outsourcedMoved: bookingsRes.outsourcedMoved || 0,
+      ktMoved: bookingsRes.ktMoved || 0, bookingsWarnings: bookingsRes.warnings || [],
+    };
   }
 
   async function confirmMerge() {
@@ -620,6 +806,7 @@ function DishLibrary(props) {
     var warn = '\n\n' + T2('This will:') +
       '\n• ' + T2('Replace the merged name(s) in every menu package that references them') +
       '\n• ' + T2('Rename the merged name(s) on every already-booked function/proposal that selected them (even locked ones) — this is what the Function Plan actually prints') +
+      '\n• ' + T2('Also move each one\'s section tag, outsourced flag, and kitchen tracking progress on every event/proposal — a genuinely conflicting case (both names had their own) is left alone and reported, never guessed') +
       '\n• ' + T2('Delete the merged dish(es) from the library and drop their Hindi / SOP / Inventory mappings') +
       '\n• ' + T2('Keep the target\'s own mappings unchanged');
     if (!window.confirm(verb + warn)) return;
@@ -633,8 +820,12 @@ function DishLibrary(props) {
       var bookingsNote = (result.bookingsRenamed || result.bookingsMerged)
         ? ' ' + result.bookingsRenamed + T2(' booked item(s) renamed') + (result.bookingsMerged ? ', ' + result.bookingsMerged + T2(' duplicate(s) dropped') : '') + '.'
         : '';
+      var ktNote = result.ktMoved ? ' ' + result.ktMoved + T2(' kitchen tracking row(s) moved.') : '';
+      var warnNote = (result.bookingsWarnings && result.bookingsWarnings.length > 0)
+        ? '\n\n' + T2('⚠ Needs manual review:') + '\n' + formatMergeWarnings(result.bookingsWarnings)
+        : '';
       alert((isRename ? T2('Renamed. ') + result.affected + T2(' package(s) updated.')
-                     : T2('Merged ') + sources.length + T2(' dish(es) into "') + target + T2('". ') + result.affected + T2(' package(s) updated.')) + bookingsNote);
+                     : T2('Merged ') + sources.length + T2(' dish(es) into "') + target + T2('". ') + result.affected + T2(' package(s) updated.')) + bookingsNote + ktNote + warnNote);
     } catch (e) {
       alert('Merge failed: ' + (e.message || e));
     } finally {
@@ -682,9 +873,12 @@ function DishLibrary(props) {
     if (sources.length === 0) { alert(T2('Nothing to merge — target is the only dish.')); return; }
     setDedupSavingIdx(idx);
     try {
-      await performMergeCore(sources, target);
+      var result = await performMergeCore(sources, target);
       setDedupResolved(function(prev) { var next = { ...prev }; next[key] = 'merged'; return next; });
       setLocalBump(function(n) { return n + 1; });
+      if (result.bookingsWarnings && result.bookingsWarnings.length > 0) {
+        alert(T2('Merged, but needs manual review:') + '\n' + formatMergeWarnings(result.bookingsWarnings));
+      }
     } catch (e) {
       alert('Merge failed: ' + (e.message || e));
     } finally {
