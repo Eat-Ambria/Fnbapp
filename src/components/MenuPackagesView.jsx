@@ -101,7 +101,20 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // Final and sent it to kitchen -- a merely-locked (frozen-for-editing-but-
   // not-dispatched) or never-locked draft is still sales' own working copy.
   var isHeadChef = currentUser?.role === "head_chef";
+  // Packages sub-tab is restricted — only Kanishk and Pratik ever see or edit
+  // it. Match on name (case-insensitive) with id as a backstop so either
+  // identifier form works. Everyone else (including other admins) gets Build
+  // menu / Dish library / Pricing but no Packages tab.
+  var _pkgEditors = ["kanishk", "pratik"];
+  var _uname = (currentUser && currentUser.name ? String(currentUser.name) : "").trim().toLowerCase();
+  var _uid = String((currentUser && (currentUser.id || currentUser.staff_id || currentUser.staffListId)) || "").toLowerCase();
+  var canEditPackages = _pkgEditors.indexOf(_uname) !== -1 || _pkgEditors.indexOf(_uid) !== -1;
   var [mainTab, setMainTab] = useState("events"); // "events" | "packages" | "library"
+  // If a non-editor somehow lands on the hidden packages tab (stale state,
+  // a jump-to-package chip from Dish library, etc.), bounce them to Build menu.
+  useEffect(function() {
+    if (mainTab === "packages" && !canEditPackages) setMainTab("events");
+  }, [mainTab, canEditPackages]);
   // V74: menu_packages is now realtime-subscribed (App.jsx). MENU_PACKAGES/MENU_PACKAGE_SECTIONS
   // are plain module objects, not React state, so force a re-render on every refresh; also pull
   // the freshest sections for the package currently open — but only if there's nothing unsaved
@@ -1555,9 +1568,9 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   // ════════════════════════════════════════════════════════════
   var TABS = [
     { v: "events",   icon: "clipboard", l: T2("Build menu") },
-    { v: "packages", icon: "box",       l: T2("Packages") },
-    { v: "library",  icon: "book",      l: T2("Dish library") },
   ];
+  if (canEditPackages) TABS.push({ v: "packages", icon: "box", l: T2("Packages") });
+  TABS.push({ v: "library",  icon: "book",      l: T2("Dish library") });
   if (isAdmin) TABS.push({ v: "pricing", icon: "sliders", l: T2("Pricing") });
 
   return (
@@ -1859,7 +1872,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       {/* ════════════════════════════════════════════════════════ */}
       {/* PACKAGES TAB — 5b left rail                              */}
       {/* ════════════════════════════════════════════════════════ */}
-      {mainTab === "packages" && (
+      {mainTab === "packages" && canEditPackages && (
         <div style={{ display: "grid", gridTemplateColumns: "220px minmax(0, 1fr)", gap: 14, alignItems: "flex-start" }}>
 
           {/* TOOLBAR — spans both columns */}
@@ -2366,7 +2379,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
         <DishLibrary
           lang={lang}
           currentUser={currentUser}
-          onJumpToPackage={function(pkgName) { setMainTab("packages"); switchPkg(pkgName); }}
+          onJumpToPackage={canEditPackages ? function(pkgName) { setMainTab("packages"); switchPkg(pkgName); } : undefined}
         />
       )}
 
@@ -2588,7 +2601,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           // that's actually needed is a re-render — never touch editorSections here.
           setDishCacheTick(function(v) { return v + 1; });
         }}
-        onJumpToPackage={function(pkgName) { setMappingDish(''); setMainTab("packages"); switchPkg(pkgName); }}
+        onJumpToPackage={canEditPackages ? function(pkgName) { setMappingDish(''); setMainTab("packages"); switchPkg(pkgName); } : undefined}
         allowDeactivate={false}
       />
 
