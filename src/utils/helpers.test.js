@@ -5,7 +5,7 @@
 // by a stale copy. Every case below is one of the ways that happened.
 
 import { describe, it, expect } from 'vitest';
-import { mergeDishState, storeItemKey, markAllCollected } from './helpers.js';
+import { mergeDishState, storeItemKey, markAllCollected, isSessionAuthError } from './helpers.js';
 
 describe('mergeDishState', () => {
   it('records a first step', () => {
@@ -147,5 +147,46 @@ describe('markAllCollected', () => {
   it('survives an empty or missing list', () => {
     expect(markAllCollected([])).toEqual({});
     expect(markAllCollected(undefined)).toEqual({});
+  });
+});
+
+// isSessionAuthError — the classifier that decides whether a failed
+// kitchen_tracking write gets durably queued for replay (a session/auth
+// problem, cured by logging in again) or just logged+alerted as a genuine,
+// non-retryable failure (today's behavior, correct for everything else).
+describe('isSessionAuthError', () => {
+  it('recognizes PostgREST JWT error codes', () => {
+    expect(isSessionAuthError({ code: 'PGRST301', message: 'JWT expired' })).toBe(true);
+    expect(isSessionAuthError({ code: 'PGRST302' })).toBe(true);
+    expect(isSessionAuthError({ code: 'PGRST303' })).toBe(true);
+  });
+
+  it('recognizes Postgres insufficient-privilege (a lapsed-to-anon session under RLS)', () => {
+    expect(isSessionAuthError({ code: '42501' })).toBe(true);
+  });
+
+  it('recognizes a bare 401 status with no code', () => {
+    expect(isSessionAuthError({ status: 401, message: 'Unauthorized' })).toBe(true);
+  });
+
+  it('recognizes "jwt" in the message even with no code', () => {
+    expect(isSessionAuthError({ message: 'JWT expired' })).toBe(true);
+  });
+
+  it('does not flag an ordinary constraint/duplicate error', () => {
+    expect(isSessionAuthError({ code: '23505', message: 'duplicate key' })).toBe(false);
+  });
+
+  it('does not flag a "no rows" PostgREST code', () => {
+    expect(isSessionAuthError({ code: 'PGRST116' })).toBe(false);
+  });
+
+  it('does not flag a plain network failure (handled separately as offline, never reaches this classifier)', () => {
+    expect(isSessionAuthError(new TypeError('Failed to fetch'))).toBe(false);
+  });
+
+  it('is false for null/undefined', () => {
+    expect(isSessionAuthError(null)).toBe(false);
+    expect(isSessionAuthError(undefined)).toBe(false);
   });
 });

@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { supabase } from './lib/supabase.js';
 import { staffAuthEmail, staffAuthPassword, classifyAuthError } from './lib/staffAuth.js';
 import { dbLoad, dbUpsert, dbUpdate, dbDelete, dbSubscribe, dbRpc } from './lib/db.js';
-import { getQueueSize, replayQueue, getLostWriteCount, clearLostWriteCount } from './lib/offlineQueue.js';
+import { getQueueSize, replayQueue, getLostWriteCount, clearLostWriteCount, enqueue } from './lib/offlineQueue.js';
 
 // Data
 import { C, hydrateConstants } from './data/constants.js';
@@ -21,7 +21,7 @@ import { loadAllConfig } from './lib/dbConfig.js';
 
 // Utils
 import './utils/styles.js';
-import { TODAY, TODAY_LABEL, safeArr, safeObj, localDateStr, mergeDishState, diffDishState, ktPatchPaths } from './utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, safeObj, localDateStr, mergeDishState, diffDishState, ktPatchPaths, isSessionAuthError } from './utils/helpers.js';
 import { syncAllKitchenMenuMirrors } from './lib/eventItems.js';
 
 // Components
@@ -406,7 +406,8 @@ export default function App() {
           // anything client-side anymore (see the comment above this effect).
           const writeTs = Date.now();
           const patchPaths = ktPatchPaths(patch);
-          dbRpc("kt_set_paths", { p_ev_id: evId, p_dish_key: dishKey, p_patch: patch, p_client_id: ktClientIdRef.current, p_ts: writeTs })
+          const rpcArgs = { p_ev_id: evId, p_dish_key: dishKey, p_patch: patch, p_client_id: ktClientIdRef.current, p_ts: writeTs };
+          dbRpc("kt_set_paths", rpcArgs)
             .then(result => {
               // kt_set_paths can REJECT one or more of the paths in this
               // patch if a genuinely newer write already landed for that
@@ -472,16 +473,41 @@ export default function App() {
             })
             .catch(e => {
               console.error("KT sync failed:", dishKey, e);
+              // dbRpc already distinguishes "genuinely offline" (queued
+              // automatically, never reaches here) from "the server actually
+              // responded with an error" (thrown, reaches here) — but it
+              // lumps every server-responded error into one "not retryable"
+              // bucket, which was wrong for exactly one class: a session
+              // that expired or lapsed to anon mid-shift. That's NOT a bad
+              // payload or a real permission denial — it's cured just by
+              // logging in again — so it belongs in the same durable queue
+              // an offline tick uses, with its ORIGINAL p_ts/client_id
+              // intact, so a replay hours later still correctly loses to
+              // any genuinely newer write from another tablet (kt_set_paths'
+              // own per-path last-write-wins).
+              //
+              // This enqueue is the ONLY retry path for this tick — not the
+              // sync effect. By the time this .catch runs, the effect has
+              // ALREADY set ktSyncedRef.current = next (at its own top,
+              // before the RPC was even sent), so this exact tick already
+              // reads as "synced" to the diff on every later render; the
+              // sync effect will never see it as changed again and will
+              // never re-send it on its own. If this enqueue is ever
+              // removed as looking "redundant", the tick is lost again —
+              // see MEMORY.md §3.3b.
+              const queued = isSessionAuthError(e);
+              if (queued) {
+                enqueue({ action: 'rpc', fn: 'kt_set_paths', args: rpcArgs })
+                  .then(() => console.warn("KT sync: session/auth failure, queued for replay after re-login:", evId, dishKey, rpcArgs.p_ts));
+              }
               // Ticks happen dozens of times per shift, so an alert per failure
               // would be its own kind of disruption the original comment above
-              // was right to avoid. But a GENUINE (non-offline) failure now
-              // throws instead of silently queuing forever (db.js), and that
-              // really does mean this tick never reached other kitchen
-              // stations watching the same event live — worth one clear
-              // warning per session rather than zero, ever.
+              // was right to avoid — one clear warning per session instead.
               if (!ktSyncWarnedRef.current) {
                 ktSyncWarnedRef.current = true;
-                alert('A kitchen update failed to save and other stations may not see it: '+(e?.message||e)+'\n\nThis dish/step is still ticked on THIS screen, but please double-check it on another tablet, or re-tap it, if this keeps happening.');
+                alert(queued
+                  ? 'Your login session has expired, so kitchen updates are being saved on THIS tablet only for now: '+(e?.message||e)+'\n\nPlease log out and log in again. Everything ticked meanwhile will be sent automatically once you are logged in (watch the pending-sync counter go to 0).'
+                  : 'A kitchen update failed to save and other stations may not see it: '+(e?.message||e)+'\n\nThis dish/step is still ticked on THIS screen, but please double-check it on another tablet, or re-tap it, if this keeps happening.');
               }
             });
         });

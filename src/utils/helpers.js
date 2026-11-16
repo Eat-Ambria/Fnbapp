@@ -414,4 +414,27 @@ function markAllCollected(items) {
   return delta;
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, normIngName, categorizeIngredientWithOverride, mergeDishState, diffDishState, ktPatchPaths, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto, uploadFPLayoutPhoto };
+// A kitchen_tracking write (kt_set_paths) rejected because of THIS device's
+// own session — an expired/invalid JWT, or a lapsed session that fell back
+// to anon and got denied by RLS — is recoverable just by logging in again,
+// unlike a genuine bad payload or constraint error. db.js's own
+// isOfflineError() already treats ANY error carrying a `.code` as "reached
+// the server, not retryable" and throws instead of queuing it — which was
+// exactly backwards for this one error class: the sync effect's own catch
+// block then had nowhere durable to put a tick that failed only because the
+// session had expired, and it was simply lost once that tablet reloaded.
+// PGRST301/302/303 are PostgREST's own JWT-expired/invalid/malformed codes;
+// 42501 is Postgres' "insufficient privilege" (what a lapsed-to-anon session
+// gets back under this app's RLS). A false positive here is harmless — the
+// entry just gets queued and, once actually replayed, fails again with the
+// same real error and is correctly dropped by replayQueue's own existing
+// permanent-failure handling.
+const KT_SESSION_AUTH_CODES = ['PGRST301', 'PGRST302', 'PGRST303', '42501'];
+function isSessionAuthError(e) {
+  if (!e) return false;
+  if (e.code && KT_SESSION_AUTH_CODES.indexOf(String(e.code)) >= 0) return true;
+  if (e.status === 401) return true;
+  return /jwt/i.test(String(e.message || ''));
+}
+
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, normIngName, categorizeIngredientWithOverride, mergeDishState, diffDishState, ktPatchPaths, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto, uploadFPLayoutPhoto, isSessionAuthError };

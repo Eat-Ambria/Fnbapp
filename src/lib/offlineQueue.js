@@ -18,15 +18,20 @@ const DB_NAME = 'ambria_offline';
 const STORE = 'write_queue';
 const DB_VERSION = 1;
 
-// Mirrors db.js's isOfflineError exactly (not imported — db.js imports
-// enqueue() from this file, so importing back from db.js would be a
-// circular dependency for one 4-line classifier). A write that fails
-// because Supabase actually responded (a constraint violation, RLS denial,
-// bad payload — anything PostgREST returns a real error for, carrying a
-// `.code`) will fail the exact same way every time it's replayed; only a
-// genuine connectivity failure is worth retrying.
-function isOfflineError(e) {
+// Mirrors db.js's isOfflineError, with one deliberate difference: an
+// expired/invalid JWT (PGRST301/302/303) is treated as retryable here even
+// though it carries a `.code` — unlike a genuine constraint/RLS error, it is
+// cured by the user logging in again, not permanent. db.js's own copy is
+// LEFT UNCHANGED on purpose: that would be a broader behavior change (every
+// table's writes silently queuing forever on a session expiry) outside the
+// scope of this fix — this file's copy only governs REPLAY, i.e. whether an
+// already-queued entry gets retried or dropped, not whether a fresh write
+// gets queued in the first place. Not imported from db.js (which imports
+// enqueue() from here, so importing back would be circular) — kept as its
+// own small classifier instead.
+export function isOfflineError(e) {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+  if (e && /^PGRST30[123]$/.test(String(e.code || ''))) return true;
   if (e && e.code) return false;
   return true;
 }
@@ -98,6 +103,19 @@ export function clearLostWriteCount() {
 
 export async function replayQueue(supabase) {
   if (!supabase) return 0;
+  // Never attempt a replay without a valid session. Under this app's RLS, a
+  // write that needs a real staff identity (kitchen_tracking included) fails
+  // with 42501 when replayed as anon — and 42501 carries a `.code`, which
+  // the "permanently-failing" branch below would then DELETE the entry for,
+  // destroying it forever on the very first replay attempt after a session
+  // expires. The automatic 2-minute ping (or an `online` event) can trigger
+  // a replay before a human has had a chance to log back in; a staff
+  // head-count query succeeding as anon (RLS just returns 0 rows) is not a
+  // sign the session is fine, so that can't be used as this check instead.
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (!data || !data.session) return 0;
+  } catch (_) { return 0; }
   let replayed = 0;
 
   // 1. Replay IndexedDB queue

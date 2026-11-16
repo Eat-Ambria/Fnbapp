@@ -246,14 +246,90 @@ column is JSON and holds objects, booleans and strings alike.
 in Supabase, unlike `transportQueue` which already mirrored to localStorage. A
 failed or in-flight write meant a refresh discarded everything.
 
-**Fix:** `kitchenTracking` is seeded from `localStorage` (`ambria_kitchen_tracking`)
+**Fix:** `kitchenTracking` is seeded from `localStorage` (`ambria_kt_state_v2`)
 in the `useState` initializer and written back on every change. The Supabase boot
 load now **merges over** the local seed instead of replacing it, so unsynced work
-is not clobbered; the synced ref is set to the server object so local-only keys
-are detected as a diff and pushed up.
+is not clobbered.
+
+**Correction (2026-11-16): the line above about "local-only keys are detected as
+a diff and pushed up" was never actually true, and is NOT what fixes a failed
+sync — see the next section for what actually recovers a failed tick, and why
+re-deriving "pushed up" from `ktSyncedRef` is the wrong place to fix it at all.**
 
 Also: the load path uses `row.data ?? {}`, not `|| {}` — a stored `false` would
 otherwise become `{}`, which is truthy.
+
+### 3.3b A failed kitchen_tracking write (session expired mid-shift) was silently lost forever (fixed 2026-11-16)
+
+`ktSyncedRef` (the "what has this tablet already confirmed as synced" baseline
+the sync effect diffs against) is seeded `useRef(kitchenTracking)` — i.e. to
+whatever `kitchenTracking` already is, which itself comes straight from
+`localStorage` at mount. The sync effect ALSO sets `ktSyncedRef.current = next`
+synchronously, before the `kt_set_paths` RPC it's about to fire has even been
+sent, let alone confirmed. **Both of these are correct and must stay as they
+are** — an Opus-drafted plan initially proposed changing them (seed to `{}`,
+or have the boot-load merge only mark server-confirmed keys as synced) and an
+adversarial-style investigation during planning found that would make things
+WORSE, not better: every key restored from localStorage (weeks of tick
+history, since this table is never pruned) would get re-sent with a FRESH
+`Date.now()` as its write timestamp on every single page load forever, and
+since `kt_set_paths` applies each path only if the incoming timestamp is `>=`
+the server's, a stale locally-cached value with a fresh timestamp would beat
+and silently revert a genuinely newer write from another tablet. This was
+already confirmed as a real production incident once before (a tablet idle
+since 6pm, reopened the next morning, overwrote another tablet's 11pm work) —
+do not reintroduce it by "fixing" the seeding or the boot merge.
+
+**The real bug was narrower**: `dbRpc` (`src/lib/db.js`) classifies any error
+carrying a `.code` as "reached the server, not retryable" and throws instead
+of queuing it — correct for a real constraint/payload error, but wrong for
+exactly one class: an expired or lapsed-to-anon session (`PGRST301`/`302`/`303`,
+or `42501` under this app's RLS), which IS recoverable, just not by retrying
+immediately — it needs the user to log in again first. The sync effect's own
+`.catch` had nowhere durable to put a tick that failed only for this reason,
+so it just logged+alerted once per session and the tick was gone the moment
+the tab reloaded (since `ktSyncedRef` was already marked past it, correctly,
+per the explanation above — nothing was differentiating "this specific write
+never reached the server" from "this is just what we have locally").
+
+**Fix**: `isSessionAuthError()` (`src/utils/helpers.js`) classifies this one
+error class; the sync effect's `.catch` (`src/App.jsx`) now enqueues the
+EXACT original RPC call (same `p_ts`/`p_client_id` — never regenerated) into
+the existing offline-write queue (`src/lib/offlineQueue.js`) when it fires,
+instead of just logging it. **The queue is the ONLY retry path for this
+tick — not the sync effect, during this session or after a reload.** The
+effect sets `ktSyncedRef.current = next` at its own top, synchronously,
+BEFORE the RPC is even sent — so by the time `.catch` runs, this exact tick
+already reads as "synced" to every later diff, and the sync effect will
+never see it as changed again on its own (confirmed by adversarial review —
+an earlier draft of this note wrongly claimed the effect would "pick it up
+and re-attempt" too; it does not, and never will unless that seeding/timing
+is also changed, which §3.3b's first paragraph explains is NOT safe to do).
+The queued entry is the sole mechanism that survives both the rest of this
+session and a reload.
+- **A second bug was required to make this safe**: `replayQueue` deletes any
+  queued entry whose replay fails with a `.code`-bearing error (correct for a
+  genuinely permanent failure). Without a guard, replaying a session-expired
+  tick's queue entry WHILE STILL LOGGED OUT (e.g. the automatic 2-minute ping
+  firing before a human re-logs-in) would get back `42501` from RLS — which
+  has a `.code` — and the entry would be deleted forever on that very first
+  attempt. `replayQueue` now checks `supabase.auth.getSession()` first and
+  returns immediately if there's no session, before ever touching the queue.
+- `offlineQueue.js`'s own `isOfflineError` (now exported) deliberately
+  diverges from `db.js`'s copy of the same name: it treats `PGRST301/302/303`
+  as retryable (so a queued entry survives a replay attempt against an
+  already-expired-but-not-yet-refreshed token instead of being dropped), but
+  NOT `42501` (a real RLS denial with a valid session IS permanent and must
+  not block the queue forever). `db.js`'s copy governs whether a FRESH write
+  gets queued at all and was left unchanged on purpose — changing it would
+  make every table's writes silently queue forever on any session hiccup,
+  a much broader behavior change than this fix's actual scope.
+
+**Found but out of scope for this fix (low severity, none block correctness or cause data loss):**
+- Replay only runs on the 2-minute `ping()` interval or an `online` event — nothing triggers it immediately on a `SIGNED_IN` auth event, so a queued tick can take up to 2 minutes to actually leave the device after logging back in, even though the alert says to watch the counter go to 0.
+- `replayQueue` discards the RPC result. If a replayed tick loses to a genuinely newer write from another tablet (server-side last-write-wins), the server makes no update and sends no broadcast — that one tablet's own display stays on its stale value until a reload or another write to that path. Server data is correct throughout; only that tablet's screen is briefly wrong.
+- `isSessionAuthError` also fires for a logged-in but DEACTIVATED staff account (`is_active_staff()` RLS check also returns `42501`) — bounded (queued once, dropped as permanently-failing on the next replay, no loop), but the alert text wrongly says "session expired" for that case.
+- A device with a behind clock can make `getSession()` think a token is still valid when the server has already expired it — the IndexedDB replay loop then stops at the queue head every attempt instead of dropping it. Blocking is strictly better than the pre-fix behavior (silent permanent loss), just not optimal.
 
 ### 3.4 Blank black screen
 
