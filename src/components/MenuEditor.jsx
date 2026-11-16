@@ -6,7 +6,7 @@ import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { RECIPE_DB, getCatIdForDish, getExplicitCatIdForDish, getAllDishes, resolveDishHindi, resolveDishStore, upsertDishCat, createCustomDishInLibrary } from '../data/recipeData.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, isMenuPackageSectionsHydrated } from '../data/menuPackages.js';
-import { resolveOverrideToCatalogueSectionId } from '../lib/catalogueSection.js';
+import { resolveOverrideToCatalogueSectionId, packageCatalogueLinkFor } from '../lib/catalogueSection.js';
 import { supabase } from '../lib/supabase.js';
 import { getEventItemsByDept } from '../lib/eventItems.js';
 
@@ -336,8 +336,11 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
       var resolvedSectionId = null;
       var rawSec = pendingCustom.sectionId || '';
       if (rawSec) {
-        var pkgSec = (pkgSections || []).find(function(s){ return s.id === rawSec; });
-        var candidate = pkgSec && pkgSec.catalogue_section_id;
+        // packageCatalogueLinkFor handles a top-level section id, a
+        // subsection id (its own link, else its parent's), and
+        // "<id>__unplaced" the same way resolveOverrideToCatalogueSectionId
+        // below does — see src/lib/catalogueSection.js.
+        var candidate = packageCatalogueLinkFor(rawSec, pkgSections);
         if (candidate) {
           var chk = await supabase.from('dish_catalogue_sections').select('id').eq('id', candidate).maybeSingle();
           var verified = (!chk.error && chk.data) ? [chk.data] : [];

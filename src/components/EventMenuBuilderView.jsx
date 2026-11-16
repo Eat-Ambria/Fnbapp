@@ -12,7 +12,7 @@ import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, MENU_PACKAGE_NO_AUTO_OVERRIDES } 
 import { APP_SETTINGS } from '../data/appSettings.js';
 import { detectPackageDiet } from '../utils/helpers.js';
 import { RECIPE_DB, createCustomDishInLibrary, getAllDishes } from '../data/recipeData.js';
-import { resolveOverrideToCatalogueSectionId } from '../lib/catalogueSection.js';
+import { resolveOverrideToCatalogueSectionId, buildOverrideResolver } from '../lib/catalogueSection.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS, pinnedDeptForDish } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows, dbSubscribe } from '../lib/db.js';
@@ -980,27 +980,22 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     var byId = {};
     (sections || []).forEach(function(s){ byId[s.id] = s; });
     // A sectionOverrides tag can point at a PACKAGE section's own id (e.g.
-    // "Rice Factory" picked from the package's section pills) rather than a
-    // catalogue section id directly — those ids never appear in `sections`
-    // at all, so without this they fell straight through to Extras even
-    // though the tag is a perfectly real, deliberate placement. Package
-    // sections built from the library carry their own catalogue_section_id
-    // link; resolve through it so the print groups/orders exactly like any
-    // other dish in that same catalogue section.
-    var pkgSecsById = {};
-    (templateInfo.name ? (MENU_PACKAGE_SECTIONS[templateInfo.name] || []) : []).forEach(function(s){ pkgSecsById[s.id] = s; });
+    // "Rice Factory" picked from the package's section pills), a package
+    // SUBSECTION's own id, or a "<id>__unplaced" id — none of those ever
+    // appear in `sections` directly. buildOverrideResolver (shared with
+    // addCustomDish below and with MenuBuilderView/MenuEditor's own custom-
+    // dish flows — see src/lib/catalogueSection.js) resolves all of those
+    // the same way, through the package section's/subsection's own
+    // catalogue_section_id link, so the print groups/orders exactly like
+    // any other dish in that same catalogue section.
+    var resolveOv = buildOverrideResolver(sections, templateInfo.name ? (MENU_PACKAGE_SECTIONS[templateInfo.name] || []) : []);
     var out = {};
     // allDishes here is grouping.allDishes (useMenuItemGrouping's own shape),
     // which renames dishes_master's dish_name to .name — NOT the raw
     // getAllDishes() rows (those do use .dish_name).
     (allDishes || []).forEach(function(d){
       var ov = sectionOverrides && sectionOverrides[d.name];
-      if (ov && ov !== '__extras__') {
-        if (byId[ov]) { out[d.name] = ov; return; }
-        var pkgSec = pkgSecsById[ov];
-        if (pkgSec && pkgSec.catalogue_section_id && byId[pkgSec.catalogue_section_id]) { out[d.name] = pkgSec.catalogue_section_id; return; }
-      }
-      if (ov) { out[d.name] = null; return; } // '__extras__', or an override that resolves to no real section at all
+      if (ov) { out[d.name] = resolveOv(ov); return; } // '__extras__' and anything unresolved both correctly give null
       out[d.name] = (d.section_id && byId[d.section_id]) ? d.section_id : null;
     });
     return out;
