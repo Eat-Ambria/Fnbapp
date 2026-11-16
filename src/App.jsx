@@ -21,7 +21,7 @@ import { loadAllConfig } from './lib/dbConfig.js';
 
 // Utils
 import './utils/styles.js';
-import { TODAY, TODAY_LABEL, safeArr, safeObj, localDateStr, mergeDishState, diffDishState, ktPatchPaths, isSessionAuthError } from './utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, safeObj, localDateStr, mergeDishState, diffDishState, ktPatchPaths, ktReplayReconcileJobs, isSessionAuthError } from './utils/helpers.js';
 import { syncAllKitchenMenuMirrors } from './lib/eventItems.js';
 
 // Components
@@ -370,6 +370,74 @@ export default function App() {
     try { localStorage.setItem(KT_LS_KEY, JSON.stringify(kitchenTracking || {})); }
     catch { /* private mode or quota — Supabase is still the system of record */ }
   }, [kitchenTracking]);
+  // Reconciles ONE kt_set_paths call's own server-returned {data, key_ts}
+  // into kitchenTracking AND ktSyncedRef. Shared by (a) the live sync
+  // effect's own .then below and (b) the post-replay path in the
+  // connectivity effect (ping(), further down) — a path the server
+  // REJECTED (a genuinely newer write already landed while this tablet was
+  // offline/logged-out) runs no UPDATE and triggers no realtime broadcast,
+  // so this function's reconciliation is the ONLY signal either caller ever
+  // gets that its own optimistic local value is now wrong. A future fix
+  // applied to only one caller instead of here would silently drift from
+  // the other — see MEMORY.md §3.3c.
+  //
+  // MUST only touch refs (ktPathTsRef, ktSyncedRef), setKitchenTracking and
+  // module-level helpers (ktApplyPathToDish) — all identity-stable across
+  // renders. The connectivity effect below has [] deps and closes over the
+  // FIRST render's copy of this function forever; reading any component
+  // state/prop here (other than via a ref) would be a stale read from then on.
+  function ktReconcileOwnWrite(evId, dishKey, patchPaths, result) {
+    // dbRpc returns null (not {}) when the call was offline-queued rather
+    // than executed — nothing to reconcile yet in that case.
+    if (!result) return;
+    const serverData = result.data, serverKeyTs = result.key_ts || {};
+    // This response travels over plain HTTP, separately from the websocket
+    // realtime echoes — the two channels give no ordering guarantee between
+    // them. A FOREIGN tablet's broadcast for a write genuinely newer than
+    // this call's own can arrive and get correctly applied by the realtime
+    // handler elsewhere BEFORE this response does. Blindly applying this
+    // response's (now-stale) value afterwards would silently revert that
+    // newer value with nothing left to correct it. So the decision of which
+    // paths this response may still apply is made here, per path, against
+    // ktPathTsRef's CURRENT value — exactly the same guard the realtime
+    // handler uses — before touching any state. `>=` (not `>`): ts and
+    // knownTs are equal whenever nothing newer has landed since this call
+    // itself committed, and that case must still apply (this call's commit
+    // IS the write ktPathTsRef is comparing against for its own path).
+    const applyPaths = [];
+    patchPaths.forEach(pk => {
+      const tk = evId + '|' + dishKey + '|' + pk;
+      const ts = Number(serverKeyTs[pk]) || 0;
+      const knownTs = ktPathTsRef.current[tk] || 0;
+      if (ts < knownTs) return; // a foreign echo already applied something newer for this exact path — leave it
+      ktPathTsRef.current[tk] = ts; // never lowers knownTs, since ts >= knownTs here
+      applyPaths.push(pk);
+    });
+    if (!applyPaths.length) return;
+    setKitchenTracking(p => {
+      // Reconcile ONLY the paths THIS call sent (and that just passed the
+      // check above) — never the whole dish — so a sibling path tapped
+      // locally while this RPC was in flight (and already folded into
+      // p[evId][dishKey] by a later-queued update) is not clobbered by this
+      // call's own snapshot. Same reasoning for ktSyncedRef: build it from
+      // ktSyncedRef's OWN prior value for this dish, not from the live
+      // (possibly newer, not-yet-pushed) p — spreading p here would wrongly
+      // mark any not-yet-synced local edit (to this dish or, worse, to an
+      // unrelated dish in the same event) as already sent to the server.
+      const prevDish = p[evId]?.[dishKey];
+      const prevSyncedEv = ktSyncedRef.current[evId] || {};
+      const prevSyncedDish = prevSyncedEv[dishKey];
+      let liveDish = prevDish, syncedDish = prevSyncedDish;
+      applyPaths.forEach(pk => {
+        liveDish = ktApplyPathToDish(liveDish, pk, serverData);
+        syncedDish = ktApplyPathToDish(syncedDish, pk, serverData);
+      });
+      const nextForEv = { ...(p[evId] || {}), [dishKey]: liveDish };
+      ktSyncedRef.current = { ...ktSyncedRef.current, [evId]: { ...prevSyncedEv, [dishKey]: syncedDish } };
+      return { ...p, [evId]: nextForEv };
+    });
+  }
+
   useEffect(() => {
     const prev = ktSyncedRef.current;
     const next = kitchenTracking;
@@ -408,69 +476,7 @@ export default function App() {
           const patchPaths = ktPatchPaths(patch);
           const rpcArgs = { p_ev_id: evId, p_dish_key: dishKey, p_patch: patch, p_client_id: ktClientIdRef.current, p_ts: writeTs };
           dbRpc("kt_set_paths", rpcArgs)
-            .then(result => {
-              // kt_set_paths can REJECT one or more of the paths in this
-              // patch if a genuinely newer write already landed for that
-              // exact path while this call was in flight — and a rejected
-              // path now runs no UPDATE at all, so no realtime broadcast
-              // will ever tell this tab its own optimistic guess for that
-              // path is wrong. Reconcile straight from the RPC's own
-              // returned (server-authoritative) data instead of trusting
-              // the local value is already correct. dbRpc returns null
-              // (not {}) when the call was offline-queued rather than
-              // executed — nothing to reconcile yet in that case.
-              if (!result) return;
-              const serverData = result.data, serverKeyTs = result.key_ts || {};
-              // This response travels over plain HTTP, separately from the
-              // websocket realtime echoes — the two channels give no
-              // ordering guarantee between them. A FOREIGN tablet's broadcast
-              // for a write genuinely newer than this call's own can arrive
-              // and get correctly applied by the realtime handler below
-              // BEFORE this response does. Blindly applying this response's
-              // (now-stale) value afterwards would silently revert that
-              // newer value with nothing left to correct it. So the decision
-              // of which paths this response may still apply is made here,
-              // per path, against ktPathTsRef's CURRENT value — exactly the
-              // same guard the realtime handler uses — before touching any
-              // state. `>=` (not `>`): ts and knownTs are equal whenever
-              // nothing newer has landed since this call itself committed,
-              // and that case must still apply (this call's commit IS the
-              // write ktPathTsRef is comparing against for its own path).
-              const applyPaths = [];
-              patchPaths.forEach(pk => {
-                const tk = evId + '|' + dishKey + '|' + pk;
-                const ts = Number(serverKeyTs[pk]) || 0;
-                const knownTs = ktPathTsRef.current[tk] || 0;
-                if (ts < knownTs) return; // a foreign echo already applied something newer for this exact path — leave it
-                ktPathTsRef.current[tk] = ts; // never lowers knownTs, since ts >= knownTs here
-                applyPaths.push(pk);
-              });
-              if (!applyPaths.length) return;
-              setKitchenTracking(p => {
-                // Reconcile ONLY the paths THIS call sent (and that just
-                // passed the check above) — never the whole dish — so a
-                // sibling path tapped locally while this RPC was in flight
-                // (and already folded into p[evId][dishKey] by a
-                // later-queued update) is not clobbered by this call's own
-                // snapshot. Same reasoning for ktSyncedRef: build it from
-                // ktSyncedRef's OWN prior value for this dish, not from the
-                // live (possibly newer, not-yet-pushed) p — spreading p here
-                // would wrongly mark any not-yet-synced local edit (to this
-                // dish or, worse, to an unrelated dish in the same event) as
-                // already sent to the server.
-                const prevDish = p[evId]?.[dishKey];
-                const prevSyncedEv = ktSyncedRef.current[evId] || {};
-                const prevSyncedDish = prevSyncedEv[dishKey];
-                let liveDish = prevDish, syncedDish = prevSyncedDish;
-                applyPaths.forEach(pk => {
-                  liveDish = ktApplyPathToDish(liveDish, pk, serverData);
-                  syncedDish = ktApplyPathToDish(syncedDish, pk, serverData);
-                });
-                const nextForEv = { ...(p[evId] || {}), [dishKey]: liveDish };
-                ktSyncedRef.current = { ...ktSyncedRef.current, [evId]: { ...prevSyncedEv, [dishKey]: syncedDish } };
-                return { ...p, [evId]: nextForEv };
-              });
-            })
+            .then(result => ktReconcileOwnWrite(evId, dishKey, patchPaths, result))
             .catch(e => {
               console.error("KT sync failed:", dishKey, e);
               // dbRpc already distinguishes "genuinely offline" (queued
@@ -1269,8 +1275,24 @@ export default function App() {
       const live=!error;
       setSupaLive(live);
       if(live){
-        replayQueue(supabase).then(n=>{
-          if(n>0)console.log('✅ Replayed',n,'offline writes');
+        replayQueue(supabase).then(({ replayed, results, pending })=>{
+          if(replayed>0)console.log('✅ Replayed',replayed,'offline writes');
+          // A replayed kt_set_paths tick needs the SAME own-write
+          // reconciliation a live write already gets (ktReconcileOwnWrite,
+          // defined above) — a path the server rejected (a genuinely newer
+          // write landed while this tablet was offline/logged-out) runs no
+          // UPDATE and triggers no realtime broadcast, so this RPC's own
+          // response is the ONLY signal this tablet ever gets that its own
+          // optimistic value is now wrong. See MEMORY.md §3.3c.
+          try {
+            ktReplayReconcileJobs(results, pending).forEach(job=>{
+              if (KT_RESERVED_KEYS.has(job.dishKey)) return;
+              const kts=(job.result&&job.result.key_ts)||{};
+              const differs=job.patchPaths.filter(pk=>Number(kts[pk])!==Number(job.entry.args.p_ts));
+              if(differs.length)console.warn('[KT replay] server key_ts differs from this write\'s p_ts (lost to a newer write, or clock-clamped) — reconciling to server value:',job.evId,job.dishKey,differs);
+              ktReconcileOwnWrite(job.evId, job.dishKey, job.patchPaths, job.result);
+            });
+          } catch (e) { console.error('[KT replay] post-replay reconcile failed:', e); }
           checkQueue();
         }).catch(()=>{});
       }

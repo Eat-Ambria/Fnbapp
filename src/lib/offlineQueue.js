@@ -11,7 +11,7 @@
  *   enqueue({ action: 'upsert', table, record, conflictKey });
  *   
  *   // In App.jsx — on reconnect:
- *   replayQueue(supabase);
+ *   const { replayed, results, pending } = await replayQueue(supabase);
  */
 
 const DB_NAME = 'ambria_offline';
@@ -101,8 +101,12 @@ export function clearLostWriteCount() {
   try { localStorage.removeItem('ambria_offq_lost'); } catch (_) {}
 }
 
+// { replayed: 0, results: [], pending: [] } — the shape replayQueue always
+// returns on an early exit, so every caller can destructure unconditionally.
+function emptyReplay() { return { replayed: 0, results: [], pending: [] }; }
+
 export async function replayQueue(supabase) {
-  if (!supabase) return 0;
+  if (!supabase) return emptyReplay();
   // Never attempt a replay without a valid session. Under this app's RLS, a
   // write that needs a real staff identity (kitchen_tracking included) fails
   // with 42501 when replayed as anon — and 42501 carries a `.code`, which
@@ -114,9 +118,24 @@ export async function replayQueue(supabase) {
   // sign the session is fine, so that can't be used as this check instead.
   try {
     const { data } = await supabase.auth.getSession();
-    if (!data || !data.session) return 0;
-  } catch (_) { return 0; }
+    if (!data || !data.session) return emptyReplay();
+  } catch (_) { return emptyReplay(); }
   let replayed = 0;
+  // results: one { entry, data } per entry this run actually replayed
+  // (any action/table — this stays generic, with no kitchen_tracking-
+  // specific knowledge). `data` is the write's own response data where one
+  // exists (an rpc call's return value; always null for a plain table
+  // write, since none of those call .select()). A caller that cares what
+  // an rpc call returned (e.g. reconciling a replayed kt_set_paths the same
+  // way a live one already is — see src/utils/helpers.js's
+  // ktReplayReconcileJobs and App.jsx's ktReconcileOwnWrite) reads this;
+  // everyone else can ignore it.
+  // pending: every entry still left in the queue after this run (retryable
+  // failures, plus anything after a stop) — mirrors what's actually still
+  // persisted, so a caller can tell "queued but not yet replayed" apart
+  // from "replayed this run" without a second query.
+  const results = [];
+  const pending = [];
 
   // 1. Replay IndexedDB queue
   try {
@@ -130,9 +149,10 @@ export async function replayQueue(supabase) {
     });
     db.close();
 
-    for (const entry of all) {
+    for (let i = 0; i < all.length; i++) {
+      const entry = all[i];
       try {
-        let ok = false, err = null;
+        let ok = false, err = null, out = null;
         if (entry.action === 'upsert') {
           const { error } = await supabase.from(entry.table).upsert(entry.record, { onConflict: entry.conflictKey || 'id' });
           ok = !error; err = error;
@@ -147,8 +167,8 @@ export async function replayQueue(supabase) {
           const { error } = await supabase.from(entry.table).insert(entry.record);
           ok = !error; err = error;
         } else if (entry.action === 'rpc') {
-          const { error } = await supabase.rpc(entry.fn, entry.args);
-          ok = !error; err = error;
+          const { data: rpcData, error } = await supabase.rpc(entry.fn, entry.args);
+          ok = !error; err = error; out = rpcData ?? null;
         }
         // A permanently-failing entry (a real PostgREST error, not a
         // connectivity blip) used to just sit here forever: this loop never
@@ -166,6 +186,7 @@ export async function replayQueue(supabase) {
           await new Promise((res, rej) => { tx2.oncomplete = res; tx2.onerror = rej; });
           db2.close();
           replayed++;
+          results.push({ entry, data: out });
         } else if (!isOfflineError(err)) {
           console.error('[offlineQueue] dropping permanently-failing queued write:', entry.table, entry.action, err?.message || err);
           const db2 = await openDB();
@@ -174,9 +195,11 @@ export async function replayQueue(supabase) {
           await new Promise((res, rej) => { tx2.oncomplete = res; tx2.onerror = rej; });
           db2.close();
         } else {
+          pending.push(...all.slice(i));
           break; // genuinely offline — stop here, preserve order for next time
         }
       } catch (_) {
+        pending.push(...all.slice(i));
         break; // stop on first failure — preserve order
       }
     }
@@ -189,7 +212,7 @@ export async function replayQueue(supabase) {
     const remaining = [];
     for (const entry of arr) {
       try {
-        let ok = false, err = null;
+        let ok = false, err = null, out = null;
         if (entry.action === 'upsert') {
           const { error } = await supabase.from(entry.table).upsert(entry.record, { onConflict: entry.conflictKey || 'id' });
           ok = !error; err = error;
@@ -204,12 +227,12 @@ export async function replayQueue(supabase) {
           const { error } = await supabase.from(entry.table).insert(entry.record);
           ok = !error; err = error;
         } else if (entry.action === 'rpc') {
-          const { error } = await supabase.rpc(entry.fn, entry.args);
-          ok = !error; err = error;
+          const { data: rpcData, error } = await supabase.rpc(entry.fn, entry.args);
+          ok = !error; err = error; out = rpcData ?? null;
         }
         // Same fix as the IndexedDB loop above: a permanently-failing entry
         // must not go back into `remaining`, or it sits here forever too.
-        if (ok) replayed++;
+        if (ok) { replayed++; results.push({ entry, data: out }); }
         else if (!isOfflineError(err)) console.error('[offlineQueue] dropping permanently-failing queued write:', entry.table, entry.action, err?.message || err);
         else remaining.push(entry);
       } catch (_) {
@@ -218,10 +241,11 @@ export async function replayQueue(supabase) {
       }
     }
     localStorage.setItem(key, JSON.stringify(remaining));
+    pending.push(...remaining);
   } catch (_) {}
 
   notifyQueueChanged();
-  return replayed;
+  return { replayed, results, pending };
 }
 
 export async function getQueueSize() {

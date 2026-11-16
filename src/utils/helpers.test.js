@@ -5,7 +5,7 @@
 // by a stale copy. Every case below is one of the ways that happened.
 
 import { describe, it, expect } from 'vitest';
-import { mergeDishState, storeItemKey, markAllCollected, isSessionAuthError } from './helpers.js';
+import { mergeDishState, storeItemKey, markAllCollected, isSessionAuthError, ktReplayReconcileJobs } from './helpers.js';
 
 describe('mergeDishState', () => {
   it('records a first step', () => {
@@ -188,5 +188,74 @@ describe('isSessionAuthError', () => {
   it('is false for null/undefined', () => {
     expect(isSessionAuthError(null)).toBe(false);
     expect(isSessionAuthError(undefined)).toBe(false);
+  });
+});
+
+// ktReplayReconcileJobs — turns offlineQueue's { results, pending } into
+// the kt_set_paths reconciliation jobs App.jsx should run after a replay.
+describe('ktReplayReconcileJobs', () => {
+  function ktEntry(evId, dishKey, patch, ts) {
+    return { action: 'rpc', fn: 'kt_set_paths', args: { p_ev_id: evId, p_dish_key: dishKey, p_patch: patch, p_ts: ts } };
+  }
+
+  it('ignores non-kt results: a different rpc fn, a non-rpc action, and a null data result', () => {
+    const other = { action: 'rpc', fn: 'some_other_rpc', args: { p_ev_id: 'E', p_dish_key: 'E|D', p_patch: { a: 1 }, p_ts: 1 } };
+    const upsert = { action: 'upsert', table: 't', record: {} };
+    const ktButNoData = ktEntry('E', 'E|D', { a: 1 }, 1);
+    const results = [
+      { entry: other, data: { data: {}, key_ts: {} } },
+      { entry: upsert, data: null },
+      { entry: ktButNoData, data: null }, // kt_set_paths but the replay itself returned no data
+    ];
+    expect(ktReplayReconcileJobs(results, [])).toEqual([]);
+  });
+
+  it('derives patchPaths via ktPatchPaths and passes evId/dishKey/result through', () => {
+    const entry = ktEntry('EVT-1', 'EVT-1|Paneer', { manual: { s1: true }, starts: { s1: 5 } }, 100);
+    const serverResult = { data: { manual: { s1: true } }, key_ts: { 'manual.s1': 100, 'starts.s1': 100 } };
+    const jobs = ktReplayReconcileJobs([{ entry, data: serverResult }], []);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].evId).toBe('EVT-1');
+    expect(jobs[0].dishKey).toBe('EVT-1|Paneer');
+    expect(jobs[0].patchPaths.sort()).toEqual(['manual.s1', 'starts.s1']);
+    expect(jobs[0].result).toBe(serverResult);
+  });
+
+  it('a pending entry for the same ev/dish/path excludes only that path, other paths survive', () => {
+    const entry = ktEntry('EVT-1', 'EVT-1|Paneer', { manual: { s1: true }, starts: { s1: 5 } }, 100);
+    const pending = [ktEntry('EVT-1', 'EVT-1|Paneer', { manual: { s1: false } }, 200)];
+    const jobs = ktReplayReconcileJobs([{ entry, data: { data: {}, key_ts: {} } }], pending);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].patchPaths).toEqual(['starts.s1']);
+  });
+
+  it('if every path of a result is pending, no job is produced for it', () => {
+    const entry = ktEntry('EVT-1', 'EVT-1|Paneer', { manual: { s1: true } }, 100);
+    const pending = [ktEntry('EVT-1', 'EVT-1|Paneer', { manual: { s1: false } }, 200)];
+    const jobs = ktReplayReconcileJobs([{ entry, data: { data: {}, key_ts: {} } }], pending);
+    expect(jobs).toEqual([]);
+  });
+
+  it('a pending entry for a different dish or event does not exclude anything', () => {
+    const entry = ktEntry('EVT-1', 'EVT-1|Paneer', { manual: { s1: true } }, 100);
+    const pendingDiffDish = [ktEntry('EVT-1', 'EVT-1|OtherDish', { manual: { s1: false } }, 200)];
+    const pendingDiffEvent = [ktEntry('EVT-2', 'EVT-1|Paneer', { manual: { s1: false } }, 200)];
+    const jobs1 = ktReplayReconcileJobs([{ entry, data: { data: {}, key_ts: {} } }], pendingDiffDish);
+    const jobs2 = ktReplayReconcileJobs([{ entry, data: { data: {}, key_ts: {} } }], pendingDiffEvent);
+    expect(jobs1[0].patchPaths).toEqual(['manual.s1']);
+    expect(jobs2[0].patchPaths).toEqual(['manual.s1']);
+  });
+
+  it('a __whole patch (a meta row) gives patchPaths ["__whole"]', () => {
+    const entry = ktEntry('EVT-1', '__dispatch_ready', { __whole: false }, 100);
+    const jobs = ktReplayReconcileJobs([{ entry, data: { data: false, key_ts: { __whole: 100 } } }], []);
+    expect(jobs[0].patchPaths).toEqual(['__whole']);
+  });
+
+  it('pending non-kt entries are ignored (never throw, never exclude anything)', () => {
+    const entry = ktEntry('EVT-1', 'EVT-1|Paneer', { manual: { s1: true } }, 100);
+    const pending = [{ action: 'upsert', table: 't', record: {} }, { action: 'rpc', fn: 'some_other_rpc', args: {} }];
+    const jobs = ktReplayReconcileJobs([{ entry, data: { data: {}, key_ts: {} } }], pending);
+    expect(jobs[0].patchPaths).toEqual(['manual.s1']);
   });
 });

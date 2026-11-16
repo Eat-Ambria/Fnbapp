@@ -396,6 +396,42 @@ function ktPatchPaths(patch) {
   return paths;
 }
 
+// Turns offlineQueue.js's replayQueue() result ({ results, pending }) into
+// the kt_set_paths reconciliation jobs App.jsx should run after a replay. A
+// replayed tick's own server response must go through the SAME
+// reconciliation a live write does (App.jsx's ktReconcileOwnWrite), or a
+// path the server rejected in favor of a newer write stays on this
+// tablet's stale optimistic value forever — see MEMORY.md §3.3c.
+//
+// One replay-only twist, not present in the live path: a path that a
+// STILL-QUEUED entry (one that didn't replay yet, still in `pending`) will
+// write again is skipped here, since that later entry owns the path and
+// will reconcile itself once IT replays. Without this skip, a replay run
+// that stops partway through the queue would revert the screen from the
+// user's latest (still-queued) tap back to an earlier one for as long as
+// the tablet stays offline/queued.
+function ktReplayReconcileJobs(results, pending) {
+  function isKt(e) {
+    return !!(e && e.action === 'rpc' && e.fn === 'kt_set_paths' && e.args && e.args.p_patch && typeof e.args.p_patch === 'object');
+  }
+  const pendingKeys = new Set();
+  (pending || []).forEach(function (e) {
+    if (!isKt(e)) return;
+    ktPatchPaths(e.args.p_patch).forEach(function (pk) {
+      pendingKeys.add(e.args.p_ev_id + '|' + e.args.p_dish_key + '|' + pk);
+    });
+  });
+  const jobs = [];
+  (results || []).forEach(function (r) {
+    const e = r && r.entry;
+    if (!isKt(e) || !r.data) return;
+    const evId = e.args.p_ev_id, dishKey = e.args.p_dish_key;
+    const patchPaths = ktPatchPaths(e.args.p_patch).filter(function (pk) { return !pendingKeys.has(evId + '|' + dishKey + '|' + pk); });
+    if (patchPaths.length) jobs.push({ entry: e, evId: evId, dishKey: dishKey, patchPaths: patchPaths, result: r.data });
+  });
+  return jobs;
+}
+
 // Identifies one row of a collect-from-store list inside `items_done`.
 // Keyed by (name, unit family) rather than by index or by the display unit, so a
 // kg<->gm flip caused by rescaling does not orphan an already-collected tick.
@@ -437,4 +473,4 @@ function isSessionAuthError(e) {
   return /jwt/i.test(String(e.message || ''));
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, normIngName, categorizeIngredientWithOverride, mergeDishState, diffDishState, ktPatchPaths, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto, uploadFPLayoutPhoto, isSessionAuthError };
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, normIngName, categorizeIngredientWithOverride, mergeDishState, diffDishState, ktPatchPaths, ktReplayReconcileJobs, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto, uploadFPLayoutPhoto, isSessionAuthError };
