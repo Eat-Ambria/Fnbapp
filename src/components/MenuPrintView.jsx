@@ -38,33 +38,12 @@ export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionN
   // app language was the wrong call here.
   var [printLang, setPrintLang] = useState(null);
 
-  if (!printLang) {
-    return createPortal(
-      <div className="menu-no-print" style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ background: C.surface, borderRadius: 12, padding: 28, width: 300, maxWidth: "90vw", textAlign: "center", boxShadow: "0 8px 30px rgba(0,0,0,0.25)" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 18 }}>
-            Print menu in / मेनू प्रिंट करें
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <button onClick={function(){ setPrintLang("en"); }}
-              style={{ padding: "12px 16px", borderRadius: 8, background: "#8A70C8", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-              English
-            </button>
-            <button onClick={function(){ setPrintLang("hi"); }}
-              style={{ padding: "12px 16px", borderRadius: 8, background: "#8A70C8", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-              हिंदी (Hindi)
-            </button>
-          </div>
-          <button onClick={onClose}
-            style={{ marginTop: 16, padding: "8px 16px", borderRadius: 8, background: "none", border: "1px solid " + C.border, color: C.muted, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>
-            Cancel
-          </button>
-        </div>
-      </div>,
-      document.body
-    );
-  }
-
+  // Hooks must run unconditionally on every render (Rules of Hooks) — the
+  // language-chooser screen below is an early RETURN after all hooks have
+  // already run, never a return before them. Putting it before headerMeta/
+  // groups's useMemo calls made the first render (no printLang yet) call
+  // fewer hooks than the second (after picking a language), which is
+  // exactly React error #310 ("rendered more hooks than previous render").
   var T2 = function(s) { return T(s, printLang); };
 
   // Sub-venue (which hall/lawn at that venue) and session (Lunch/Dinner/
@@ -113,6 +92,33 @@ export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionN
   }, [dishItems, dishSectionOrder, dishSectionName, printLang]);
 
   var totalDishes = groups.reduce(function(n, g){ return n + g.dishes.length; }, 0);
+
+  if (!printLang) {
+    return createPortal(
+      <div className="menu-no-print" style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ background: C.surface, borderRadius: 12, padding: 28, width: 300, maxWidth: "90vw", textAlign: "center", boxShadow: "0 8px 30px rgba(0,0,0,0.25)" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 18 }}>
+            Print menu in / मेनू प्रिंट करें
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <button onClick={function(){ setPrintLang("en"); }}
+              style={{ padding: "12px 16px", borderRadius: 8, background: "#8A70C8", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              English
+            </button>
+            <button onClick={function(){ setPrintLang("hi"); }}
+              style={{ padding: "12px 16px", borderRadius: 8, background: "#8A70C8", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              हिंदी (Hindi)
+            </button>
+          </div>
+          <button onClick={onClose}
+            style={{ marginTop: 16, padding: "8px 16px", borderRadius: 8, background: "none", border: "1px solid " + C.border, color: C.muted, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>
+            Cancel
+          </button>
+        </div>
+      </div>,
+      document.body
+    );
+  }
 
   return createPortal(
     <div className="menu-print-root" style={{ position: "fixed", inset: 0, zIndex: 200, background: "#fff", overflowY: "auto" }}>
