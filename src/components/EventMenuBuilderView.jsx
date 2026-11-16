@@ -569,11 +569,17 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // Defer the check to the render that has dishLibBump, dishItems AND
   // sectionOverrides all applied — same self-heal idea as the V79 effect
   // above, just fired once per add instead of once per initial load.
-  var [pendingKitchenMirror, setPendingKitchenMirror] = useState(null); // { name } | null, a fresh object every add so this re-fires each time
+  // { name } — single-dish add, only re-mirrors if THAT dish is itself
+  // kitchen-tracked (skips a pointless write for e.g. a plain beverage add);
+  // { all: true } — a bulk tag change (removeAdHocSection, addSectionFromLibrary)
+  // can shift MANY dishes' resolved department at once, any of which could
+  // flip kitchen-tracked status, so there's no single name to gate on —
+  // always re-mirror.
+  var [pendingKitchenMirror, setPendingKitchenMirror] = useState(null); // { name } | { all: true } | null, a fresh object every time so this re-fires each time
   useEffect(function(){
     if (!pendingKitchenMirror) return;
     if (!event || !event.id || !currentUser) return; // same guard as the V79 effect above
-    if (isKitchenTrackedDish(pendingKitchenMirror.name)) mirrorKitchenMenu(dishItems);
+    if (pendingKitchenMirror.all || isKitchenTrackedDish(pendingKitchenMirror.name)) mirrorKitchenMenu(dishItems);
   // eslint-disable-next-line
   }, [pendingKitchenMirror]);
 
@@ -1345,10 +1351,10 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   async function addExistingDish(name, sectionId) {
     if (blockIfMenuLocked()) return;
     try {
-      var result = await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
+      await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
       logFpHistory(T2('Added dish') + ': ' + name);
-      if (isKitchenTrackedDish(name)) await mirrorKitchenMenu(result.nextItems);
-      if (sectionId) await saveSectionOverride(name, sectionId);
+      if (sectionId) await saveSectionOverride(name, sectionId); // raw placement id — the per-event override
+      setPendingKitchenMirror({ name: name }); // deferred — effectiveDeptForDish inside isKitchenTrackedDish must see the tag just saved above, not a stale pre-tag dept
     } catch (e) {
       console.error('[EventMenuBuilder] addExistingDish failed:', e);
       alert(T2('Failed to add dish:') + ' ' + (e.message || e));
@@ -1361,10 +1367,19 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // V88 — bring in a chosen catalogue section as browsable, UNselected cards
   // under the chosen pill — no event_items insert, so nothing is auto-picked;
   // the user selects individual dishes from there via the normal onToggle.
-  function addSectionFromLibrary(catSectionId, targetId) {
+  async function addSectionFromLibrary(catSectionId, targetId) {
     if (blockIfMenuLocked()) return;
     var subIds = (catSubsByParent[catSectionId] || []).map(function(s){ return s.id; });
-    return menuItemOps.addSectionFromLibrary(itemsOpsConfig, sectionOverrides, catSectionId, targetId, subIds, setSectionOverrides);
+    var result = await menuItemOps.addSectionFromLibrary(itemsOpsConfig, sectionOverrides, catSectionId, targetId, subIds, setSectionOverrides);
+    // "Nothing is auto-picked" (above) is about SELECTION only — this still
+    // retags sectionOverrides for EVERY active dish in the section, including
+    // one already selected from before. If that dish was already in the menu,
+    // its resolved department can change (effectiveDeptForDish now sees the
+    // new tag), which could flip its kitchen-tracked status — same gap class
+    // removeAdHocSection had, same fix: no single dish to gate on, so always
+    // re-mirror. See pendingKitchenMirror's own comment above for why.
+    setPendingKitchenMirror({ all: true });
+    return result;
   }
 
   // Create a brand-new top-level dish_catalogue_sections row (not picked from
@@ -1398,9 +1413,16 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // not a real package section) from THIS event's menu builder: clears every
   // dish's tag pointing at it (and its subsection buckets) — metadata-only,
   // mirrors MenuBuilderView.jsx's removeAdHocSection.
-  function removeAdHocSection(grp) {
+  async function removeAdHocSection(grp) {
     if (blockIfMenuLocked()) return;
-    return menuItemOps.removeAdHocSection(itemsOpsConfig, sectionOverrides, grp, setSectionOverrides);
+    var result = await menuItemOps.removeAdHocSection(itemsOpsConfig, sectionOverrides, grp, setSectionOverrides);
+    // Clearing a tag can change MULTIPLE dishes' resolved department at once
+    // (effectiveDeptForDish falls back to each dish's catalogue/default dept
+    // once its override is gone) — any of them could flip kitchen-tracked
+    // status, so there's no single dish name to gate the re-mirror on;
+    // { all: true } always re-mirrors rather than picking one to check.
+    setPendingKitchenMirror({ all: true });
+    return result;
   }
 
   // Remove every dish actually selected in a PACKAGE-DEFAULT section (not an
