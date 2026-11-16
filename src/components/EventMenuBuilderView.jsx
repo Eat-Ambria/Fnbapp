@@ -1045,10 +1045,92 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // that didn't exist in the package at all. Grouped under its own heading
   // in the FP instead, so "we added a whole new section" reads as what it
   // is, not as a pile of stray additions mixed into the flat diff list.
-  var pkgSectionIds = useMemo(function(){
+  //
+  // This has to be checked against CATALOGUE section ids, not package
+  // section ids — a dish tag (sectionOverrides value) is always a
+  // dish_catalogue_sections id (see the `!sec` guard below, which already
+  // requires that), while a package section's own `id` is a package-local
+  // id (`sec_…`/`sub_…`, genSecId()/genSubId() in MenuPackagesView.jsx) that
+  // can never equal a catalogue id. Comparing a catalogue tag against a set
+  // of package-local ids meant this NEVER matched, so every catalogue-
+  // tagged, non-baseline dish printed as "New" even when its section was
+  // genuinely linked to the current package.
+  //
+  // The membership test has to match the SAME check the builder itself uses
+  // to decide a tagged dish already belongs to an existing package group
+  // rather than becoming its own separate ad-hoc 📚 pill — the override
+  // pass in useMenuItemGrouping.js (~line 748-766): a tag counts as "in the
+  // package" only when it equals a linked section's own catalogue id OR one
+  // of that section's catalogue CHILDREN (resolveOwnDishes pooling a linked
+  // section's subsections, ~line 581-594). Two tempting widenings were
+  // tried and DISPROVEN against that real check and live production
+  // package data (do not reintroduce either without re-verifying against
+  // useMenuItemGrouping.js:748-766 first):
+  //   - ancestors of a seed (e.g. counting the catalogue PARENT of a linked
+  //     child as "in the package") — the override pass has no such
+  //     fallback, so the builder itself still shows a dish tagged to the
+  //     bare parent as its own separate ad-hoc pill.
+  //   - the seed's whole TOP-LEVEL ancestor subtree, i.e. treating sibling
+  //     sections as merged because pillTree visually clusters every
+  //     section sharing a top ancestor into one DISPLAY pill
+  //     (MenuBuilderView.jsx ~line 913-930) — that clustering is cosmetic;
+  //     each sibling still renders as its OWN child pill inside it, with
+  //     its own 📚 icon and "remove ad-hoc section" control. Against real
+  //     package data this widening suppressed genuine "(New X)" labels —
+  //     e.g. adding "Sushi Counter" to a Double Magnum Veg 2027 event,
+  //     whose package links "Pre Dining Live"'s Dimsum/Galouti children
+  //     but not Sushi Counter, a sibling under the same broad umbrella.
+  // So the correct seed set is exactly: each package section's/
+  // subsection's own live catalogue_section_id link, plus (for an unlinked
+  // TOP-LEVEL section only, mirroring the builder's own id-first/name-
+  // second resolveTop order) an exact name match — then every catalogue
+  // DESCENDANT of each seed. Nothing more.
+  var pkgCatalogueSectionIds = useMemo(function(){
+    var out = new Set();
     var pkgSecs = templateInfo.name ? (MENU_PACKAGE_SECTIONS[templateInfo.name] || []) : [];
-    return new Set(pkgSecs.map(function(s){ return s.id; }));
-  }, [templateInfo.name]);
+    if (pkgSecs.length === 0) return out;
+    var byId = {}, byName = {}, childrenOf = {};
+    (sections || []).forEach(function(s){
+      byId[s.id] = s;
+      var n = (s.name || '').toLowerCase().trim();
+      if (n && !byName[n]) byName[n] = s; // first wins, same tie-break as catalogueTree
+      if (s.parent_section_id) (childrenOf[s.parent_section_id] = childrenOf[s.parent_section_id] || []).push(s.id);
+    });
+    // Name fallback applies ONLY to a top-level package section's own link,
+    // matching catalogueTree.resolveTop's id-first/name-second order
+    // exactly (useMenuItemGrouping.js:302-304) — resolveTop is only ever
+    // called with a TOP-LEVEL section's own catSectionId/name (pillTree,
+    // MenuBuilderView.jsx:916), never a subsection's, so a subsection gets
+    // no name fallback here either: it needs a real, live catalogue link or
+    // it isn't a seed (an unlinked, hand-built subsection just isn't part
+    // of the catalogue tree at all, on screen or here).
+    function seedFor(id, name) {
+      if (id && byId[id]) return id;
+      var m = byName[(name || '').toLowerCase().trim()];
+      return m ? m.id : null;
+    }
+    var seeds = [];
+    pkgSecs.forEach(function(sec){
+      var s = seedFor(sec.catalogue_section_id, sec.name);
+      if (s) seeds.push(s);
+      (sec.subsections || []).forEach(function(sub){
+        if (sub.catalogue_section_id && byId[sub.catalogue_section_id]) seeds.push(sub.catalogue_section_id);
+      });
+    });
+    // Descendants of each seed, any depth — BFS over childrenOf, not a
+    // single pass, since `sections` is sort_order, not tree order (a
+    // grandchild can precede its parent). `out.has(id)` doubles as the
+    // BFS's cycle guard (no DB constraint stops parent_section_id from
+    // cycling).
+    var queue = seeds.slice();
+    while (queue.length > 0) {
+      var id = queue.shift();
+      if (out.has(id)) continue;
+      out.add(id);
+      (childrenOf[id] || []).forEach(function(c){ queue.push(c); });
+    }
+    return out;
+  }, [templateInfo.name, sections, pkgVer]);
 
   // The package's genuine baseline dish set — same filtering menuDiffByDept's
   // own pkgSet below uses, hoisted so newSectionsByDept can share it: a
@@ -1079,14 +1161,20 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       if (!targetId) return;
       var sec = (sections || []).find(function(s){ return s.id === targetId; });
       if (!sec) return; // not a real catalogue section id (e.g. '__extras__')
-      if (pkgSectionIds.has(targetId)) return; // a real package section, not ad hoc
-      var dept = sectionSalesDeptMap[targetId] || 'kit';
+      if (pkgCatalogueSectionIds.has(targetId)) return; // part of the package (a linked section or its catalogue subtree) — not ad hoc
+      // Same precedence chain itemsByDept/menuDiffByDept's own `added` use
+      // (effectiveDeptForDish), not just the section's own catalogue dept —
+      // otherwise a new-section dish could print under a different dept
+      // here than the Items tab/kitchen mirror actually place it in.
+      var dept = effectiveDeptForDish(dishName);
       if (!out[dept]) out[dept] = {};
       if (!out[dept][targetId]) out[dept][targetId] = { name: sec.name, dishes: [] };
       out[dept][targetId].dishes.push(dishName);
     });
     return out;
-  }, [sectionOverrides, sections, pkgSectionIds, sectionSalesDeptMap, selectedDishNames, pkgBaselineDishNames]);
+  // eslint-disable-next-line
+  }, [sectionOverrides, sections, pkgCatalogueSectionIds, selectedDishNames, pkgBaselineDishNames,
+      allDishesByName, sectionSalesDeptMap, dishNameToPkgDept, sectionOverrideDept, salesMeta]);
 
   // ── Package vs. actual-selection diff, per dept, for the printable FP ──
   // Replaces a full dish-by-dish listing with just the package name plus
@@ -1169,8 +1257,13 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       if (added.length === 0 && removed.length === 0 && newSections.length === 0 && removedSections.length === 0) return;
       // null when a dept has ONLY a new/removed section and nothing else
       // differs — there's no +/- diff list to label in that case, just the
-      // section block(s).
-      var kind = (added.length > 0 && removed.length > 0) ? 'swap'
+      // section block(s). A newSections entry counts as an addition for
+      // "swap" purposes (removed dishes AND a new-section addition is a
+      // swap, not a bare "deduction" that silently drops the fact that
+      // something was also added) — but NOT for "addon" on its own: with
+      // nothing in `added`, there's no +/- list to put an "(Add-on)" header
+      // over, only the "(New X)" block(s) below it.
+      var kind = (removed.length > 0 && (added.length > 0 || newSections.length > 0)) ? 'swap'
         : (added.length > 0 ? 'addon' : (removed.length > 0 ? 'deduction' : null));
       out[d.id] = { added: added, removed: removed, kind: kind, newSections: newSections, removedSections: removedSections };
     });
