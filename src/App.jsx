@@ -5,7 +5,7 @@ import React, { useState, useRef, useEffect, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from './lib/supabase.js';
 import { staffAuthEmail, staffAuthPassword, classifyAuthError } from './lib/staffAuth.js';
-import { dbLoad, dbUpsert, dbUpdate, dbDelete, dbSubscribe, dbRpc } from './lib/db.js';
+import { dbLoad, dbUpsert, dbUpdate, dbDelete, dbSubscribe, dbRpc, fetchAllRows, kitchenTrackingWindowQuery } from './lib/db.js';
 import { getQueueSize, replayQueue, getLostWriteCount, clearLostWriteCount, enqueue } from './lib/offlineQueue.js';
 
 // Data
@@ -21,7 +21,7 @@ import { loadAllConfig } from './lib/dbConfig.js';
 
 // Utils
 import './utils/styles.js';
-import { TODAY, TODAY_LABEL, safeArr, safeObj, localDateStr, mergeDishState, diffDishState, ktPatchPaths, ktReplayReconcileJobs, isSessionAuthError } from './utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, safeObj, localDateStr, mergeDishState, diffDishState, ktPatchPaths, ktReplayReconcileJobs, isSessionAuthError, ktCatchUpOnStatus, ktCatchUpWaitMs, KT_CATCHUP_INITIAL, KT_CATCHUP_MIN_INTERVAL_MS, KT_CATCHUP_MAX_FAILURES } from './utils/helpers.js';
 import { syncAllKitchenMenuMirrors } from './lib/eventItems.js';
 
 // Components
@@ -344,6 +344,17 @@ export default function App() {
   // out-of-order DELIVERY, not to resolve who wins (that's already decided).
   const ktPathTsRef = useRef({}); // "evId|dishKey|path" -> last-applied key_ts seen from the server
   const ktSyncWarnedRef = useRef(false); // one alert per session, not one per failed tick
+  // True from the moment the kitchen_tracking realtime channel drops until a
+  // reconnect catch-up fetch has fully applied — see ktApplyServerRow's own
+  // own-echo branch and MEMORY.md §3.3d for why this exists: without it, an
+  // own-echo arriving during a gap can raise ktPathTsRef past a FOREIGN
+  // path's timestamp that this tab never actually received, making the
+  // catch-up fetch wrongly skip that path as "not strictly newer".
+  const ktCatchUpOwedRef = useRef(false);
+  const ktCatchUpStateRef = useRef(KT_CATCHUP_INITIAL); // ktCatchUpOnStatus's own state — {everSubscribed, live, gapGen}
+  const ktCatchUpLastStartRef = useRef(0); // Date.now() of the last catch-up fetch actually started — throttle input
+  const ktCatchUpFailuresRef = useRef(0); // consecutive catch-up fetch failures — gives up after KT_CATCHUP_MAX_FAILURES
+  const ktCatchUpTimerRef = useRef(null); // pending setTimeout id for a throttled/retried catch-up run, if any
   // The account menu is anchored with position:fixed rather than absolute. The
   // sidebar panel sets overflow:hidden for its rounded corners and artwork, so
   // an absolutely positioned menu opening downward was clipped at the panel
@@ -435,6 +446,146 @@ export default function App() {
       const nextForEv = { ...(p[evId] || {}), [dishKey]: liveDish };
       ktSyncedRef.current = { ...ktSyncedRef.current, [evId]: { ...prevSyncedEv, [dishKey]: syncedDish } };
       return { ...p, [evId]: nextForEv };
+    });
+  }
+
+  // Applies ONE server-side kitchen_tracking row — either a realtime echo's
+  // payload.new, or a row from the reconnect catch-up fetch (see MEMORY.md
+  // §3.3d) — per path, guarded by ktPathTsRef. Shared by both callers so a
+  // fix to one can't drift from the other (the exact class of bug §3.3c
+  // already guards against for ktReconcileOwnWrite). Same rule as that
+  // function: only refs, setKitchenTracking and module-level helpers — the
+  // realtime effect below closes over the first [appReady] render's copy of
+  // this function forever.
+  //
+  // opts.skipOwnEcho (default true): the live realtime path skips a row
+  // whose client_id is THIS tab's own id — it already has that value
+  // (confirmed via ktReconcileOwnWrite's own HTTP-response reconciliation).
+  // The reconnect catch-up passes skipOwnEcho:false — a row's client_id is
+  // only its LAST writer, so a row this tab itself wrote can still carry a
+  // FOREIGN path's value this tab never received during the gap; the
+  // per-path strict-newer-than guard below is what actually decides each
+  // path, not who wrote the row last.
+  function ktApplyServerRow(row, opts) {
+    const skipOwnEcho = !opts || opts.skipOwnEcho !== false;
+    // MERGE the incoming row, never replace it. A realtime echo can arrive
+    // carrying a snapshot older than what the chef just tapped on this very
+    // tablet; replacing wholesale then wiped that tap, which is the other
+    // half of "I press Done and it undoes itself". Merging keeps keys the
+    // echo doesn't mention while still applying the ones it does — so a real
+    // undo from another tablet (an explicit false) still comes through.
+    //
+    // This tab's OWN writes are skipped entirely, not merged — merging only
+    // protects a key an echo omits; a key it DOES carry (e.g. an Undo's
+    // explicit manual:false) still overwrites whatever this tab has done
+    // since, and a second rapid tap on the same step reliably outruns its
+    // own first tap's echo. A tab replaying its own past write onto itself
+    // only loses, never gains, information, so it's just skipped.
+    //
+    // The same problem also happens ACROSS devices (two tablets tapping the
+    // same step around the same moment) — this used to be guarded here via
+    // client_write_ts (a single per-ROW timestamp), dropping any echo
+    // older than the newest write already known for this row. That worked
+    // when every write replaced the whole row, but now that kt_set_paths
+    // (the write side, above) writes one JSON PATH at a time, a row-level
+    // timestamp is the wrong granularity: a fresh write to step_3 bumps
+    // the row's timestamp past an in-flight, perfectly valid write to
+    // step_2, making step_2's own echo look "stale" by comparison even
+    // though nothing actually raced it. kt_set_paths resolves THAT race —
+    // whether its OWN write applies — per path, server-side, before ever
+    // broadcasting. But realtime delivery itself is not guaranteed to
+    // arrive in commit order, so an OLDER echo can still be DELIVERED to
+    // this tab after a NEWER one for the very same path — unconditionally
+    // merging every echo as it arrives could let that stale, out-of-order
+    // echo overwrite something newer this tab already has. kt_set_paths now
+    // broadcasts its row's key_ts alongside data, so this handler compares
+    // each path's incoming key_ts against the newest it's already applied
+    // for that EXACT path (ktPathTsRef) and skips the ones that aren't
+    // strictly newer — never a blanket row-level check, since that was the
+    // original bug (an unrelated path's fresh write looking like it raced
+    // a path it never touched).
+    //
+    // STRICT greater-than, not >=: every broadcast carries the row's
+    // WHOLE key_ts object (Postgres/Supabase realtime has no concept of
+    // "only the columns this statement changed"), not just the one path
+    // that changed in that particular UPDATE — so a broadcast for path Y
+    // also re-presents every OTHER path's unchanged, already-known
+    // timestamp for X. With >=, that would re-apply X's (old, correct but
+    // already-superseded-locally) echoed value on top of an in-flight
+    // optimistic local tap on X whose own RPC hasn't resolved yet, purely
+    // because X's old timestamp still matched. Strict > means only a
+    // GENUINELY newer value for a path ever overwrites what's known.
+    // ktPathTsRef is seeded from each row's key_ts at boot (see the
+    // boot-merge) precisely so a dish's PRE-existing paths aren't sitting
+    // at a default of 0 (which would make any first echo "newer"
+    // regardless of this reasoning).
+    //
+    // This also writes the merged result into ktSyncedRef (not just
+    // kitchenTracking) in the same update — without that, the sync effect
+    // above sees an externally-arrived echo as "new local state" on its
+    // next run and re-uploads it right back under THIS tab's own id,
+    // which is how two tabs end up ping-ponging a value back and forth
+    // forever. Built from ktSyncedRef's OWN prior per-dish value, not from
+    // the live kitchenTracking state `p` — spreading `p` here would wrongly
+    // mark any not-yet-synced local edit (to this dish, or to an unrelated
+    // dish in the same event already folded into `p` by an earlier-queued
+    // local update) as already sent to the server, and the sync effect
+    // would then never push it.
+    const {ev_id,dish_key,data,client_id,key_ts}=row;
+    if(KT_RESERVED_KEYS.has(dish_key))return;
+    const kts=(key_ts&&typeof key_ts==='object')?key_ts:{};
+    if(skipOwnEcho&&client_id&&client_id===ktClientIdRef.current){
+      // Our own echo. Nothing to merge (we already have this value
+      // locally, confirmed via the sync effect's own RPC-return
+      // reconciliation), but still record its timestamps so a LATER,
+      // genuinely stale echo from another device doesn't look "newer
+      // than anything this tab has seen" against a still-zeroed ref.
+      //
+      // EXCEPT while a reconnect catch-up is owed: after a gap, this row's
+      // key_ts can include a FOREIGN path this tab never actually
+      // received (it only knows this row's OWN last writer was this tab —
+      // an unrelated path on the same row could've been written by
+      // someone else while this tab was disconnected). Raising ktPathTsRef
+      // for that path here, before the catch-up fetch has had a chance to
+      // apply it, would make the catch-up wrongly see it as "not strictly
+      // newer" and skip it forever. See MEMORY.md §3.3d.
+      if(!ktCatchUpOwedRef.current){
+        Object.keys(kts).forEach(pathKey=>{
+          const tk=ev_id+'|'+dish_key+'|'+pathKey;
+          const ts=Number(kts[pathKey])||0;
+          if(ts>(ktPathTsRef.current[tk]||0)) ktPathTsRef.current[tk]=ts;
+        });
+      }
+      return;
+    }
+    const hasPathInfo=Object.keys(kts).length>0;
+    setKitchenTracking(p=>{
+      const prevDish=p[ev_id]?.[dish_key];
+      const prevSyncedEv=ktSyncedRef.current[ev_id]||{};
+      const prevSyncedDish=prevSyncedEv[dish_key];
+      let nextDish=prevDish, nextSyncedDish=prevSyncedDish;
+      if(!hasPathInfo){
+        // Row never touched by kt_set_paths (pre-migration data, or a
+        // stale client still on the old whole-row write path) — no
+        // per-path info to compare against, so fall back to the same
+        // plain merge used before this change.
+        nextDish=mergeDishState(prevDish,data||{});
+        nextSyncedDish=mergeDishState(prevSyncedDish,data||{});
+      } else {
+        Object.keys(kts).forEach(pathKey=>{
+          const tk=ev_id+'|'+dish_key+'|'+pathKey;
+          const incomingTs=Number(kts[pathKey])||0;
+          const knownTs=ktPathTsRef.current[tk]||0;
+          if(incomingTs<=knownTs)return; // not strictly newer — stale or already-applied, skip
+          ktPathTsRef.current[tk]=incomingTs;
+          nextDish=ktApplyPathToDish(nextDish,pathKey,data);
+          nextSyncedDish=ktApplyPathToDish(nextSyncedDish,pathKey,data);
+        });
+      }
+      if(nextDish===prevDish) return p; // nothing actually applied — avoid a pointless re-render/sync-effect run
+      const nextForEv={...(p[ev_id]||{}),[dish_key]:nextDish};
+      ktSyncedRef.current={...ktSyncedRef.current,[ev_id]:{...prevSyncedEv,[dish_key]:nextSyncedDish}};
+      return {...p,[ev_id]:nextForEv};
     });
   }
 
@@ -1009,6 +1160,78 @@ export default function App() {
   // ── Realtime subscriptions (after data loaded) ──
   useEffect(() => {
     if (!appReady) return;
+    // See MEMORY.md §3.3d. A dropped-then-restored websocket connection
+    // (Phoenix/realtime-js) never replays whatever postgres_changes events
+    // it missed during the gap — a tablet that was briefly offline or just
+    // backgrounded can sit there having silently missed another device's
+    // writes, with nothing ever correcting it short of a manual reload.
+    // ktDisposed guards every one of this closure's async continuations
+    // (the catch-up fetch, its retry timer) against firing after this
+    // effect's own cleanup has already run (a fast appReady flip, or React
+    // 18 StrictMode's dev-only double-invoke) — a continuation landing on a
+    // torn-down closure would call setKitchenTracking on a component that's
+    // about to re-subscribe its own fresh effect instance, double-applying
+    // whatever it fetched.
+    let ktDisposed = false;
+    function ktRunCatchUp() {
+      if (ktDisposed) return;
+      ktCatchUpOwedRef.current = true;
+      ktCatchUpLastStartRef.current = Date.now();
+      // Captured so THIS fetch only clears ktCatchUpOwedRef if no NEWER gap
+      // opened while it was in flight. A slow fetch started for gap #1 can
+      // resolve AFTER a #2 drop+reconnect has already happened (onKtStatus
+      // bumps gapGen on every such transition) — clearing the owed ref from
+      // #1's stale success would reopen the exact window the ref exists to
+      // close for #2 (an own-echo arriving after this clears could then raise
+      // ktPathTsRef for a path #2's own, still-pending catch-up hasn't
+      // applied yet — see MEMORY.md §3.3d). Leaving it set is always safe:
+      // the only cost is the own-echo raise staying gated a little longer.
+      const gen = ktCatchUpStateRef.current.gapGen;
+      fetchAllRows(kitchenTrackingWindowQuery).then((rows) => {
+        if (ktDisposed) return;
+        // skipOwnEcho:false — see ktApplyServerRow's own comment on why a
+        // row's client_id (its last writer) doesn't tell us this tablet
+        // already has every path in it.
+        (rows || []).forEach((row) => ktApplyServerRow(row, { skipOwnEcho: false }));
+        ktCatchUpFailuresRef.current = 0;
+        if (ktCatchUpStateRef.current.gapGen === gen && ktCatchUpStateRef.current.live) ktCatchUpOwedRef.current = false;
+      }).catch((e) => {
+        if (ktDisposed) return;
+        console.warn('[kitchen_tracking] reconnect catch-up fetch failed:', e && e.message || e);
+        ktCatchUpFailuresRef.current += 1;
+        if (ktCatchUpFailuresRef.current < KT_CATCHUP_MAX_FAILURES) {
+          if (ktCatchUpTimerRef.current) clearTimeout(ktCatchUpTimerRef.current);
+          ktCatchUpTimerRef.current = setTimeout(ktRunCatchUp, KT_CATCHUP_MIN_INTERVAL_MS);
+        } else {
+          // Giving up after repeated failure: leaving ktCatchUpOwedRef stuck
+          // on true would silently block the own-echo timestamp raise (see
+          // ktApplyServerRow) forever, for every future write this tablet
+          // ever makes — worse than the gap it was trying to protect. Clear
+          // it (same stale-generation guard as the success path above) and
+          // accept that whatever was missed in this particular gap may stay
+          // missed until the next genuine reconnect.
+          if (ktCatchUpStateRef.current.gapGen === gen && ktCatchUpStateRef.current.live) ktCatchUpOwedRef.current = false;
+          console.error('[kitchen_tracking] reconnect catch-up gave up after', KT_CATCHUP_MAX_FAILURES, 'failed attempts');
+        }
+      });
+    }
+    function ktRequestCatchUp() {
+      if (ktDisposed) return;
+      if (ktCatchUpTimerRef.current) { clearTimeout(ktCatchUpTimerRef.current); ktCatchUpTimerRef.current = null; }
+      const wait = ktCatchUpWaitMs(Date.now(), ktCatchUpLastStartRef.current, KT_CATCHUP_MIN_INTERVAL_MS);
+      if (wait <= 0) ktRunCatchUp(); else ktCatchUpTimerRef.current = setTimeout(ktRunCatchUp, wait);
+    }
+    // Passed to dbSubscribe('kitchen_tracking', ...) below as onStatus.
+    // Phoenix re-fires 'SUBSCRIBED' on every rejoin, not just the first —
+    // ktCatchUpOnStatus is the pure state machine that tells a genuine
+    // reconnect (fire a catch-up) apart from the very first connect
+    // (nothing missed yet, nothing to fetch).
+    function onKtStatus(status) {
+      const result = ktCatchUpOnStatus(ktCatchUpStateRef.current, status);
+      ktCatchUpStateRef.current = result.next;
+      if (result.markOwed) ktCatchUpOwedRef.current = true;
+      if (result.fire) ktRequestCatchUp();
+    }
     const u1 = dbSubscribe('staff', (payload) => {
       const newRow = payload.new;
       if(payload.eventType==='INSERT') setEmpDb(p=>{if(p.some(s=>(s.staffListId||s.staff_id)===newRow.staff_id))return p;return[...p,{...newRow,staffListId:newRow.staff_id}];});
@@ -1098,119 +1321,12 @@ export default function App() {
       if(payload.eventType==='DELETE') setEvents_raw(p=>p.filter(e=>e.id!==payload.old.id));
     });
     const u5 = dbSubscribe('kitchen_tracking', (payload) => {
-      // MERGE the incoming row, never replace it. A realtime echo can arrive
-      // carrying a snapshot older than what the chef just tapped on this very
-      // tablet; replacing wholesale then wiped that tap, which is the other
-      // half of "I press Done and it undoes itself". Merging keeps keys the
-      // echo doesn't mention while still applying the ones it does — so a real
-      // undo from another tablet (an explicit false) still comes through.
-      //
-      // This tab's OWN writes are skipped entirely, not merged — merging only
-      // protects a key an echo omits; a key it DOES carry (e.g. an Undo's
-      // explicit manual:false) still overwrites whatever this tab has done
-      // since, and a second rapid tap on the same step reliably outruns its
-      // own first tap's echo. A tab replaying its own past write onto itself
-      // only loses, never gains, information, so it's just skipped.
-      //
-      // The same problem also happens ACROSS devices (two tablets tapping the
-      // same step around the same moment) — this used to be guarded here via
-      // client_write_ts (a single per-ROW timestamp), dropping any echo
-      // older than the newest write already known for this row. That worked
-      // when every write replaced the whole row, but now that kt_set_paths
-      // (the write side, above) writes one JSON PATH at a time, a row-level
-      // timestamp is the wrong granularity: a fresh write to step_3 bumps
-      // the row's timestamp past an in-flight, perfectly valid write to
-      // step_2, making step_2's own echo look "stale" by comparison even
-      // though nothing actually raced it. kt_set_paths resolves THAT race —
-      // whether its OWN write applies — per path, server-side, before ever
-      // broadcasting. But realtime delivery itself is not guaranteed to
-      // arrive in commit order, so an OLDER echo can still be DELIVERED to
-      // this tab after a NEWER one for the very same path — unconditionally
-      // merging every echo as it arrives could let that stale, out-of-order
-      // echo overwrite something newer this tab already has. kt_set_paths now
-      // broadcasts its row's key_ts alongside data, so this handler compares
-      // each path's incoming key_ts against the newest it's already applied
-      // for that EXACT path (ktPathTsRef) and skips the ones that aren't
-      // strictly newer — never a blanket row-level check, since that was the
-      // original bug (an unrelated path's fresh write looking like it raced
-      // a path it never touched).
-      //
-      // STRICT greater-than, not >=: every broadcast carries the row's
-      // WHOLE key_ts object (Postgres/Supabase realtime has no concept of
-      // "only the columns this statement changed"), not just the one path
-      // that changed in that particular UPDATE — so a broadcast for path Y
-      // also re-presents every OTHER path's unchanged, already-known
-      // timestamp for X. With >=, that would re-apply X's (old, correct but
-      // already-superseded-locally) echoed value on top of an in-flight
-      // optimistic local tap on X whose own RPC hasn't resolved yet, purely
-      // because X's old timestamp still matched. Strict > means only a
-      // GENUINELY newer value for a path ever overwrites what's known.
-      // ktPathTsRef is seeded from each row's key_ts at boot (see the
-      // boot-merge below) precisely so a dish's PRE-existing paths aren't
-      // sitting at a default of 0 (which would make any first echo "newer"
-      // regardless of this reasoning).
-      //
-      // This also writes the merged result into ktSyncedRef (not just
-      // kitchenTracking) in the same update — without that, the sync effect
-      // above sees an externally-arrived echo as "new local state" on its
-      // next run and re-uploads it right back under THIS tab's own id,
-      // which is how two tabs end up ping-ponging a value back and forth
-      // forever. Built from ktSyncedRef's OWN prior per-dish value, not from
-      // the live kitchenTracking state `p` — spreading `p` here would wrongly
-      // mark any not-yet-synced local edit (to this dish, or to an unrelated
-      // dish in the same event already folded into `p` by an earlier-queued
-      // local update) as already sent to the server, and the sync effect
-      // would then never push it.
       // Supabase always sets payload.new to {} (truthy) on a DELETE, not
       // undefined — so this branch must explicitly exclude DELETE too, or it
       // fires alongside the DELETE branch below and writes a stray
       // kitchenTracking[undefined][undefined] entry every time a row is removed.
       if(payload.eventType!=='DELETE'&&payload.new){
-        const {ev_id,dish_key,data,client_id,key_ts}=payload.new;
-        if(KT_RESERVED_KEYS.has(dish_key))return;
-        const kts=(key_ts&&typeof key_ts==='object')?key_ts:{};
-        if(client_id&&client_id===ktClientIdRef.current){
-          // Our own echo. Nothing to merge (we already have this value
-          // locally, confirmed via the sync effect's own RPC-return
-          // reconciliation), but still record its timestamps so a LATER,
-          // genuinely stale echo from another device doesn't look "newer
-          // than anything this tab has seen" against a still-zeroed ref.
-          Object.keys(kts).forEach(pathKey=>{
-            const tk=ev_id+'|'+dish_key+'|'+pathKey;
-            const ts=Number(kts[pathKey])||0;
-            if(ts>(ktPathTsRef.current[tk]||0)) ktPathTsRef.current[tk]=ts;
-          });
-          return;
-        }
-        const hasPathInfo=Object.keys(kts).length>0;
-        setKitchenTracking(p=>{
-          const prevDish=p[ev_id]?.[dish_key];
-          const prevSyncedEv=ktSyncedRef.current[ev_id]||{};
-          const prevSyncedDish=prevSyncedEv[dish_key];
-          let nextDish=prevDish, nextSyncedDish=prevSyncedDish;
-          if(!hasPathInfo){
-            // Row never touched by kt_set_paths (pre-migration data, or a
-            // stale client still on the old whole-row write path) — no
-            // per-path info to compare against, so fall back to the same
-            // plain merge used before this change.
-            nextDish=mergeDishState(prevDish,data||{});
-            nextSyncedDish=mergeDishState(prevSyncedDish,data||{});
-          } else {
-            Object.keys(kts).forEach(pathKey=>{
-              const tk=ev_id+'|'+dish_key+'|'+pathKey;
-              const incomingTs=Number(kts[pathKey])||0;
-              const knownTs=ktPathTsRef.current[tk]||0;
-              if(incomingTs<=knownTs)return; // not strictly newer — stale or already-applied, skip
-              ktPathTsRef.current[tk]=incomingTs;
-              nextDish=ktApplyPathToDish(nextDish,pathKey,data);
-              nextSyncedDish=ktApplyPathToDish(nextSyncedDish,pathKey,data);
-            });
-          }
-          if(nextDish===prevDish) return p; // nothing actually applied — avoid a pointless re-render/sync-effect run
-          const nextForEv={...(p[ev_id]||{}),[dish_key]:nextDish};
-          ktSyncedRef.current={...ktSyncedRef.current,[ev_id]:{...prevSyncedEv,[dish_key]:nextSyncedDish}};
-          return {...p,[ev_id]:nextForEv};
-        });
+        ktApplyServerRow(payload.new);
       }
       // (ev_id, dish_key) is this table's actual primary key (no surrogate id
       // column), so a DELETE's payload.old reliably carries both — without
@@ -1230,7 +1346,7 @@ export default function App() {
         Object.keys(ktPathTsRef.current).forEach(tk=>{ if(tk.indexOf(tkPrefix)===0) delete ktPathTsRef.current[tk]; });
         setKitchenTracking(p=>{if(!p[ev_id]||!(dish_key in p[ev_id]))return p;const evState={...p[ev_id]};delete evState[dish_key];return {...p,[ev_id]:evState};});
       }
-    });
+    }, onKtStatus);
     const u7 = dbSubscribe('transport_queue', (payload) => {
       const nq=payload.new?{id:payload.new.id,dish:payload.new.dish_name,evId:payload.new.ev_id||null,sec:payload.new.sec||null,station:payload.new.station||null,qty:payload.new.qty??null,unit:payload.new.unit||null,event:payload.new.event_guest,pax:payload.new.pax,venue:payload.new.venue,eventDate:payload.new.event_date,preparedBy:payload.new.prepared_by,markedAt:payload.new.marked_at,status:payload.new.status,pickedUpAt:payload.new.picked_up_at||undefined,fromVenue:payload.new.from_venue||"",vehicleId:payload.new.vehicle_id||""}:null;
       if(payload.eventType==='INSERT'&&nq) setTransportQueue_raw(p=>{if(p.some(i=>i.id===nq.id))return p;return[...p,nq];});
@@ -1255,7 +1371,11 @@ export default function App() {
         setPermsTick(t=>t+1);
       });
     });
-    return () => { u1(); u4(); u5(); u7(); u8(); u9(); u10(); };
+    return () => {
+      ktDisposed = true;
+      if (ktCatchUpTimerRef.current) { clearTimeout(ktCatchUpTimerRef.current); ktCatchUpTimerRef.current = null; }
+      u1(); u4(); u5(); u7(); u8(); u9(); u10();
+    };
   }, [appReady]);
 
   // ── Supabase connectivity indicator + offline queue replay ──

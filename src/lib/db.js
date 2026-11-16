@@ -28,6 +28,14 @@ export function isOfflineError(e) {
   return true;
 }
 
+// Shared by dbLoad's own boot-time kitchen_tracking fetch (below) and
+// App.jsx's realtime-gap catch-up (see MEMORY.md §3.3d) — one copy of the
+// 3-day window, not two that could silently drift apart.
+export function kitchenTrackingWindowQuery() {
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 3);
+  return supabase.from('kitchen_tracking').select('*').gte('updated_at', cutoff.toISOString()).order('updated_at', { ascending: false });
+}
+
 export async function dbLoad(table, fallback = []) {
   const key = cacheKey(table);
   if (!supabase) {
@@ -64,8 +72,9 @@ export async function dbLoad(table, fallback = []) {
       // screen that genuinely needs older rows — Kitchen Hub's Analytics tab,
       // which can look up any past event — fetches those on demand itself
       // (see KitchenHub.jsx's historicalKt) instead of relying on this load.
-      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 3);
-      data = await fetchAllRows(() => supabase.from(table).select('*').gte('updated_at', cutoff.toISOString()).order('updated_at', { ascending: false }));
+      // kitchenTrackingWindowQuery is shared with App.jsx's realtime-gap
+      // catch-up (see MEMORY.md §3.3d) — one copy of this window, not two.
+      data = await fetchAllRows(kitchenTrackingWindowQuery);
     } else {
       data = await fetchAllRows(() => supabase.from(table).select('*'));
     }
@@ -228,7 +237,16 @@ export async function fetchAllRows(builder, opts = {}) {
 }
 
 let dbSubscribeSeq = 0;
-export function dbSubscribe(table, callback) {
+// onStatus (optional): (status, err) => void, passed straight through to
+// realtime-js's own subscribe() callback — status is one of realtime-js's
+// REALTIME_SUBSCRIBE_STATES ('SUBSCRIBED' | 'CHANNEL_ERROR' | 'TIMED_OUT' |
+// 'CLOSED'). Phoenix re-sends the channel join on every underlying socket
+// reconnect, so subscribe()'s callback fires 'SUBSCRIBED' again on EVERY
+// rejoin, not just the first — letting a caller tell "just reconnected
+// after a drop" apart from "first ever connect" (see App.jsx's kitchen_
+// tracking catch-up, MEMORY.md §3.3d). Omitted (every other caller today) →
+// .subscribe() is called with no callback, exactly as before this change.
+export function dbSubscribe(table, callback, onStatus) {
   if (!supabase) return () => {};
   // Channel name used to be just `${table}-rt` — fine as long as only ONE
   // caller ever subscribed to a given table. BookedFunctionsView.jsx adding
@@ -238,9 +256,12 @@ export function dbSubscribe(table, callback) {
   // the first subscribe() had already gone through threw "cannot add
   // postgres_changes callbacks... after subscribe()". Each call now gets its
   // own topic so independent subscribers never collide.
+  const statusCb = typeof onStatus === 'function'
+    ? (status, err) => { try { onStatus(status, err); } catch (e) { console.error('[dbSubscribe] onStatus threw:', table, e); } }
+    : undefined;
   const channel = supabase
     .channel(table + '-rt-' + (dbSubscribeSeq++))
     .on('postgres_changes', { event: '*', schema: 'public', table: table }, callback)
-    .subscribe();
+    .subscribe(statusCb);
   return () => { supabase.removeChannel(channel); };
 }

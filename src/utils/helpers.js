@@ -432,6 +432,44 @@ function ktReplayReconcileJobs(results, pending) {
   return jobs;
 }
 
+// kitchen_tracking realtime-catch-up state machine (see MEMORY.md §3.3d).
+// Supabase Realtime does NOT replay missed postgres_changes events to a
+// client that reconnects after a connection gap — these decide, from one
+// subscribe()-status update at a time, whether THIS 'SUBSCRIBED' is a
+// genuine reconnect (fire a catch-up fetch) or just the channel's first
+// ever connect (do nothing).
+const KT_CATCHUP_INITIAL = { everSubscribed: false, live: false, gapGen: 0 };
+const KT_CATCHUP_MIN_INTERVAL_MS = 15000;
+const KT_CATCHUP_MAX_FAILURES = 3;
+
+// Any 'SUBSCRIBED' AFTER the first one is a reconnect — Phoenix only resends
+// the channel join (which is what re-fires 'SUBSCRIBED') on an underlying
+// socket reconnect, so a repeat 'SUBSCRIBED' means the server created a
+// FRESH postgres_changes subscription and anything that changed between the
+// old one and the new one may have been missed. `fire` tells the caller to
+// run a catch-up fetch now; `markOwed` tells it a catch-up is now owed (see
+// ktApplyServerRow's own-echo guard) — both only ever true once this channel
+// has reached 'SUBSCRIBED' at least once before. `gapGen` increments on
+// every drop and every re-join, so an in-flight catch-up fetch can tell
+// whether a NEW gap opened while it was still running.
+function ktCatchUpOnStatus(state, status) {
+  const s = state || KT_CATCHUP_INITIAL;
+  if (status === 'SUBSCRIBED') {
+    const fire = s.everSubscribed;
+    return { next: { everSubscribed: true, live: true, gapGen: fire ? s.gapGen + 1 : s.gapGen }, fire: fire, markOwed: fire };
+  }
+  // CHANNEL_ERROR / TIMED_OUT / CLOSED / anything unrecognized — not live.
+  const drop = s.everSubscribed && s.live;
+  return { next: { everSubscribed: s.everSubscribed, live: false, gapGen: drop ? s.gapGen + 1 : s.gapGen }, fire: false, markOwed: s.everSubscribed };
+}
+
+// How long (ms) to wait before another catch-up fetch may start, given when
+// the last one started — the throttle a flapping connection needs so a
+// reconnect storm can't fire dozens of fetches a minute.
+function ktCatchUpWaitMs(now, lastStartAt, minIntervalMs) {
+  return lastStartAt ? Math.max(0, lastStartAt + minIntervalMs - now) : 0;
+}
+
 // Identifies one row of a collect-from-store list inside `items_done`.
 // Keyed by (name, unit family) rather than by index or by the display unit, so a
 // kg<->gm flip caused by rescaling does not orphan an already-collected tick.
@@ -473,4 +511,4 @@ function isSessionAuthError(e) {
   return /jwt/i.test(String(e.message || ''));
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, normIngName, categorizeIngredientWithOverride, mergeDishState, diffDishState, ktPatchPaths, ktReplayReconcileJobs, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto, uploadFPLayoutPhoto, isSessionAuthError };
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, normIngName, categorizeIngredientWithOverride, mergeDishState, diffDishState, ktPatchPaths, ktReplayReconcileJobs, ktCatchUpOnStatus, ktCatchUpWaitMs, KT_CATCHUP_INITIAL, KT_CATCHUP_MIN_INTERVAL_MS, KT_CATCHUP_MAX_FAILURES, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto, uploadFPLayoutPhoto, isSessionAuthError };

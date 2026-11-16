@@ -5,7 +5,7 @@
 // by a stale copy. Every case below is one of the ways that happened.
 
 import { describe, it, expect } from 'vitest';
-import { mergeDishState, storeItemKey, markAllCollected, isSessionAuthError, ktReplayReconcileJobs } from './helpers.js';
+import { mergeDishState, storeItemKey, markAllCollected, isSessionAuthError, ktReplayReconcileJobs, ktCatchUpOnStatus, ktCatchUpWaitMs, KT_CATCHUP_INITIAL } from './helpers.js';
 
 describe('mergeDishState', () => {
   it('records a first step', () => {
@@ -257,5 +257,67 @@ describe('ktReplayReconcileJobs', () => {
     const pending = [{ action: 'upsert', table: 't', record: {} }, { action: 'rpc', fn: 'some_other_rpc', args: {} }];
     const jobs = ktReplayReconcileJobs([{ entry, data: { data: {}, key_ts: {} } }], pending);
     expect(jobs[0].patchPaths).toEqual(['manual.s1']);
+  });
+});
+
+describe('ktCatchUpOnStatus', () => {
+  it('the very first SUBSCRIBED (initial state) never fires a catch-up — nothing could have been missed yet', () => {
+    const r = ktCatchUpOnStatus(KT_CATCHUP_INITIAL, 'SUBSCRIBED');
+    expect(r.fire).toBe(false);
+    expect(r.markOwed).toBe(false);
+    expect(r.next).toEqual({ everSubscribed: true, live: true, gapGen: 0 });
+  });
+
+  it('a null/undefined state is treated the same as KT_CATCHUP_INITIAL', () => {
+    expect(ktCatchUpOnStatus(null, 'SUBSCRIBED')).toEqual(ktCatchUpOnStatus(KT_CATCHUP_INITIAL, 'SUBSCRIBED'));
+    expect(ktCatchUpOnStatus(undefined, 'SUBSCRIBED')).toEqual(ktCatchUpOnStatus(KT_CATCHUP_INITIAL, 'SUBSCRIBED'));
+  });
+
+  it('a drop (CHANNEL_ERROR) from a live, ever-subscribed state marks owed and bumps gapGen, but does not fire', () => {
+    const live = { everSubscribed: true, live: true, gapGen: 0 };
+    const r = ktCatchUpOnStatus(live, 'CHANNEL_ERROR');
+    expect(r.fire).toBe(false);
+    expect(r.markOwed).toBe(true);
+    expect(r.next).toEqual({ everSubscribed: true, live: false, gapGen: 1 });
+  });
+
+  it('TIMED_OUT and CLOSED are treated the same as any other non-SUBSCRIBED status', () => {
+    const live = { everSubscribed: true, live: true, gapGen: 0 };
+    expect(ktCatchUpOnStatus(live, 'TIMED_OUT')).toEqual(ktCatchUpOnStatus(live, 'CHANNEL_ERROR'));
+    expect(ktCatchUpOnStatus(live, 'CLOSED')).toEqual(ktCatchUpOnStatus(live, 'CHANNEL_ERROR'));
+  });
+
+  it('a second drop while already down does not bump gapGen again, but still marks owed', () => {
+    const alreadyDown = { everSubscribed: true, live: false, gapGen: 1 };
+    const r = ktCatchUpOnStatus(alreadyDown, 'CHANNEL_ERROR');
+    expect(r.markOwed).toBe(true);
+    expect(r.next).toEqual({ everSubscribed: true, live: false, gapGen: 1 });
+  });
+
+  it('a reconnect SUBSCRIBED after a drop fires a catch-up, marks owed, and bumps gapGen', () => {
+    const down = { everSubscribed: true, live: false, gapGen: 1 };
+    const r = ktCatchUpOnStatus(down, 'SUBSCRIBED');
+    expect(r.fire).toBe(true);
+    expect(r.markOwed).toBe(true);
+    expect(r.next).toEqual({ everSubscribed: true, live: true, gapGen: 2 });
+  });
+});
+
+describe('ktCatchUpWaitMs', () => {
+  it('no prior start (falsy lastStartAt) never waits', () => {
+    expect(ktCatchUpWaitMs(Date.now(), 0, 15000)).toBe(0);
+    expect(ktCatchUpWaitMs(Date.now(), null, 15000)).toBe(0);
+  });
+
+  it('within the throttle window, waits exactly the remaining time', () => {
+    expect(ktCatchUpWaitMs(5000, 1000, 15000)).toBe(11000);
+  });
+
+  it('past the throttle window, waits zero instead of going negative', () => {
+    expect(ktCatchUpWaitMs(20000, 1000, 15000)).toBe(0);
+  });
+
+  it('exactly at the boundary waits zero', () => {
+    expect(ktCatchUpWaitMs(16000, 1000, 15000)).toBe(0);
   });
 });
