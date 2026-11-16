@@ -12,6 +12,7 @@ import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, MENU_PACKAGE_NO_AUTO_OVERRIDES } 
 import { APP_SETTINGS } from '../data/appSettings.js';
 import { detectPackageDiet } from '../utils/helpers.js';
 import { RECIPE_DB, createCustomDishInLibrary, getAllDishes } from '../data/recipeData.js';
+import { resolveOverrideToCatalogueSectionId } from '../lib/catalogueSection.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS, pinnedDeptForDish } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows, dbSubscribe } from '../lib/db.js';
@@ -558,6 +559,23 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     mirrorKitchenMenu(dishItems);
   // eslint-disable-next-line
   }, [loading]);
+
+  // A brand-new custom dish can't be judged by isKitchenTrackedDish inside
+  // addCustomDish itself: that handler's allDishesByName predates the
+  // setDishLibBump re-render that makes the new dish resolvable (so hasRecipe
+  // reads as unknown/false), and its effectiveDeptForDish predates the
+  // sectionOverrides tag just saved (so a dish tagged into a Beverages/Fruits
+  // section could be wrongly judged "Kitchen" using its OLD, pre-tag dept).
+  // Defer the check to the render that has dishLibBump, dishItems AND
+  // sectionOverrides all applied — same self-heal idea as the V79 effect
+  // above, just fired once per add instead of once per initial load.
+  var [pendingKitchenMirror, setPendingKitchenMirror] = useState(null); // { name } | null, a fresh object every add so this re-fires each time
+  useEffect(function(){
+    if (!pendingKitchenMirror) return;
+    if (!event || !event.id || !currentUser) return; // same guard as the V79 effect above
+    if (isKitchenTrackedDish(pendingKitchenMirror.name)) mirrorKitchenMenu(dishItems);
+  // eslint-disable-next-line
+  }, [pendingKitchenMirror]);
 
   // ── V78: Function Plan (event_function_plans, one row per event) ──
   var fpCancelledRef = useRef(false);
@@ -1302,12 +1320,17 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     // surface much later as an "Unmapped" entry in Kitchen Hub Planning.
     if (!catId) { alert(T2('Pick an SOP / recipe section before adding this dish.')); return; }
     try {
-      await createCustomDishInLibrary(supabase, name, catId);
+      var pkgSecs = templateInfo.name ? (MENU_PACKAGE_SECTIONS[templateInfo.name] || []) : [];
+      var catalogueSectionId = resolveOverrideToCatalogueSectionId(sectionId, sections, pkgSecs);
+      var lib = await createCustomDishInLibrary(supabase, name, catId, catalogueSectionId);
       setDishLibBump(function(n){ return n + 1; });
-      var result = await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
+      await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
       logFpHistory(T2('Added dish') + ': ' + name);
-      if (isKitchenTrackedDish(name)) await mirrorKitchenMenu(result.nextItems);
-      if (sectionId) await saveSectionOverride(name, sectionId);
+      if (sectionId) await saveSectionOverride(name, sectionId); // raw placement id — unchanged, this is the per-event override
+      setPendingKitchenMirror({ name: name }); // deferred — see the useEffect above for why this can't run synchronously here
+      if (lib.masterError || lib.categoryError || lib.recipeError) {
+        alert('"' + name + '" ' + T2('was added, but its library/SOP recipe entry did not fully save, so Kitchen Hub may not track it. Check it in the Dish Library.') + ' ' + (((lib.recipeError || lib.categoryError || lib.masterError) || {}).message || ''));
+      }
     } catch (e) {
       // addDishItem only calls its onOptimistic setter AFTER a successful
       // insert (see menuItemOps.js), so dishItems/setDishItems was never

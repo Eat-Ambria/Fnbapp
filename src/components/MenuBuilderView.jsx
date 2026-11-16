@@ -5,9 +5,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { MENU_PACKAGES } from '../data/menuPackages.js';
+import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { detectPackageDiet } from '../utils/helpers.js';
 import { RECIPE_DB, createCustomDishInLibrary, findRecipeForDish, isDishNoSopMarked } from '../data/recipeData.js';
+import { resolveOverrideToCatalogueSectionId } from '../lib/catalogueSection.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
@@ -355,13 +356,18 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
     // surface much later as an "Unmapped" entry in Kitchen Hub Planning.
     if (!catId) { sayFail(T2('Could not add that dish'), T2('Pick an SOP / recipe section first.')); return; }
     try {
-      await createCustomDishInLibrary(supabase, name, catId);
+      var pkgSecs = templateInfo.name ? (MENU_PACKAGE_SECTIONS[templateInfo.name] || []) : [];
+      var catalogueSectionId = resolveOverrideToCatalogueSectionId(sectionId, sections, pkgSecs);
+      var lib = await createCustomDishInLibrary(supabase, name, catId, catalogueSectionId);
       setDishLibBump(function(n){ return n + 1; });
       // addDishItem only calls its onOptimistic setter AFTER a successful
       // insert (see menuItemOps.js), so dishItems/setDishItems is never
       // touched here before a throw — nothing to revert on failure.
       await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);
       if (sectionId) await saveSectionOverride(name, sectionId);
+      if (lib.masterError || lib.categoryError || lib.recipeError) {
+        sayFail(T2('Dish added, but its library/SOP recipe entry did not fully save — check it in the Dish Library'), lib.recipeError || lib.categoryError || lib.masterError);
+      }
     } catch (e) {
       console.error('[MenuBuilder] addCustomDish failed:', e);
       sayFail(T2('Could not add that dish'), e);

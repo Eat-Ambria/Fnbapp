@@ -4,8 +4,9 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { RECIPE_DB, getCatIdForDish, getExplicitCatIdForDish, getAllDishes, resolveDishHindi, resolveDishStore, upsertDishMaster, upsertDishCat } from '../data/recipeData.js';
+import { RECIPE_DB, getCatIdForDish, getExplicitCatIdForDish, getAllDishes, resolveDishHindi, resolveDishStore, upsertDishCat, createCustomDishInLibrary } from '../data/recipeData.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, isMenuPackageSectionsHydrated } from '../data/menuPackages.js';
+import { resolveOverrideToCatalogueSectionId } from '../lib/catalogueSection.js';
 import { supabase } from '../lib/supabase.js';
 import { getEventItemsByDept } from '../lib/eventItems.js';
 
@@ -326,29 +327,25 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
     var mappingIssue = false;
     setCustomSaving(true);
     try {
-      // Upsert into dishes_master so this dish becomes part of the library (idempotent on 23505)
-      var res = await supabase.from('dishes_master').upsert({ dish_name: name, is_active: true }, { onConflict: 'dish_name', ignoreDuplicates: true });
-      if (res.error && res.error.code !== '23505') { console.warn('dishes_master upsert warning:', res.error); mappingIssue = true; }
-      upsertDishMaster(name, { is_active: true });
-      if (catId) {
-        var catRes = await supabase.from('dish_categories').upsert({ dish_name: name, category_id: catId }, { onConflict: 'dish_name' });
-        if (catRes.error) { console.warn('dish_categories upsert warning:', catRes.error); mappingIssue = true; }
-        upsertDishCat(name, catId);
-        // Give it an empty SOP recipe stub in that category, so it shows up in
-        // Kitchen Hub's SOP list ready to fill in — instead of only existing as
-        // a category tag with no recipe card to open at all.
-        var already = (RECIPE_DB.recipes[catId] || []).some(function(r) { return r.n === name; });
-        if (!already) {
-          var recRes = await supabase.from('recipes').insert({ dish_name: name, category_id: catId, sub: '', steps: [] });
-          if (recRes.error && recRes.error.code !== '23505') { console.warn('recipes insert warning:', recRes.error); mappingIssue = true; }
-          else {
-            if (!RECIPE_DB.recipes[catId]) RECIPE_DB.recipes[catId] = [];
-            RECIPE_DB.recipes[catId].push({ n: name, sub: '', steps: [] });
-            var catObj = (RECIPE_DB.cats || []).find(function(c) { return c.id === catId; });
-            if (catObj) catObj.count = (RECIPE_DB.recipes[catId] || []).length;
-          }
+      // This file has no catalogue sections list loaded (unlike the Items
+      // tab/EventMenuBuilderView, which both keep one in state) — pendingCustom's
+      // sectionId is only ever a package section/subsection id here (the chips
+      // below are built from pkgSections, not a catalogue browse), so resolve it
+      // by checking just that ONE candidate catalogue_section_id against the DB
+      // instead of loading the whole catalogue just for this.
+      var resolvedSectionId = null;
+      var rawSec = pendingCustom.sectionId || '';
+      if (rawSec) {
+        var pkgSec = (pkgSections || []).find(function(s){ return s.id === rawSec; });
+        var candidate = pkgSec && pkgSec.catalogue_section_id;
+        if (candidate) {
+          var chk = await supabase.from('dish_catalogue_sections').select('id').eq('id', candidate).maybeSingle();
+          var verified = (!chk.error && chk.data) ? [chk.data] : [];
+          resolvedSectionId = resolveOverrideToCatalogueSectionId(rawSec, verified, pkgSections);
         }
       }
+      var lib = await createCustomDishInLibrary(supabase, name, catId, resolvedSectionId);
+      if (lib.masterError || lib.categoryError || lib.recipeError) mappingIssue = true;
     } catch (e) { console.warn('Custom dish library add failed:', e); mappingIssue = true; }
     finally { setCustomSaving(false); }
     if (mappingIssue) {

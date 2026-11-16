@@ -5,8 +5,8 @@
 // zero-quantity ingredients, so every consumer that filters on `q > 0` threw
 // them away and the panel showed one flat list with "Water" in it five times.
 
-import { describe, it, expect } from 'vitest';
-import { getIngrForDish, getIngrForYield, RECIPE_DB } from './recipeData.js';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { getIngrForDish, getIngrForYield, RECIPE_DB, createCustomDishInLibrary, setDishMaster } from './recipeData.js';
 
 // A miniature two-section recipe in the post-V48 schema.
 const REC = {
@@ -87,5 +87,98 @@ describe('getIngrForDish', () => {
     if (!out) return;
     const water = out.find(i => !i._isSection && i.n === 'Water');
     expect(water.q).toBeCloseTo(12); // 6 L at 300 pax -> 12 L at 600
+  });
+});
+
+// createCustomDishInLibrary — a brand-new dish's dishes_master.section_id
+// write, the FK-rejection retry (that column is a real FK to
+// dish_catalogue_sections(id) — a wrong/stale id makes the WHOLE upsert
+// fail, which must not lose the dish), and that a real (non-duplicate)
+// write failure is reported back instead of only console.warn'd.
+function fakeSupabase(handlers) {
+  const calls = [];
+  return {
+    calls,
+    from(table) {
+      return {
+        upsert(row, opts) {
+          // Snapshot the row — the real implementation mutates and reuses the
+          // same object across its FK-retry (fine for a real client, which
+          // serializes at call time), so capturing a live reference here
+          // would make an earlier call's recorded row reflect a later
+          // mutation instead of what was actually sent at that point.
+          calls.push({ table, op: 'upsert', row: { ...row }, opts });
+          const h = handlers.upsert && handlers.upsert[table];
+          return Promise.resolve(h ? h(row, calls.filter(c => c.table === table && c.op === 'upsert').length) : { error: null });
+        },
+        insert(row) {
+          calls.push({ table, op: 'insert', row: { ...row } });
+          const h = handlers.insert && handlers.insert[table];
+          return Promise.resolve(h ? h(row) : { error: null });
+        },
+      };
+    },
+  };
+}
+
+describe('createCustomDishInLibrary', () => {
+  beforeEach(() => { setDishMaster({}); });
+
+  it('writes section_id on a genuinely new dish', async () => {
+    const sb = fakeSupabase({});
+    const result = await createCustomDishInLibrary(sb, '__test_new_dish__', '', 'cat-chaat');
+    expect(result.masterError).toBeNull();
+    expect(result.sectionIdWritten).toBe('cat-chaat');
+    const masterCall = sb.calls.find(c => c.table === 'dishes_master');
+    expect(masterCall.row.section_id).toBe('cat-chaat');
+  });
+
+  it('never sets section_id on a dish that already exists locally', async () => {
+    setDishMaster({ '__test_existing_dish__': { is_active: true } });
+    const sb = fakeSupabase({});
+    const result = await createCustomDishInLibrary(sb, '__test_existing_dish__', '', 'cat-chaat');
+    expect(result.sectionIdWritten).toBeNull();
+    const masterCall = sb.calls.find(c => c.table === 'dishes_master');
+    expect(masterCall.row.section_id).toBeUndefined();
+  });
+
+  it('retries without section_id when the FK rejects it, and does not lose the dish', async () => {
+    const sb = fakeSupabase({
+      upsert: {
+        dishes_master: (row, callNumber) => {
+          if (callNumber === 1) return { error: { code: '23503', message: 'fk violation' } };
+          return { error: null }; // second call, retried without section_id
+        },
+      },
+    });
+    const result = await createCustomDishInLibrary(sb, '__test_stale_section__', '', 'cat-does-not-exist');
+    expect(result.masterError).toBeNull(); // the retry succeeded, so this is not a reportable failure
+    expect(result.sectionIdWritten).toBeNull();
+    const masterCalls = sb.calls.filter(c => c.table === 'dishes_master');
+    expect(masterCalls).toHaveLength(2);
+    expect(masterCalls[0].row.section_id).toBe('cat-does-not-exist');
+    expect(masterCalls[1].row.section_id).toBeUndefined();
+  });
+
+  it('reports a real recipe-insert failure instead of only warning', async () => {
+    const sb = fakeSupabase({
+      insert: {
+        recipes: () => ({ error: { code: 'XX000', message: 'boom' } }),
+      },
+    });
+    const result = await createCustomDishInLibrary(sb, '__test_recipe_fail__', '__test_cat__', null);
+    expect(result.recipeError).toBeTruthy();
+    expect(result.masterError).toBeNull();
+    expect(result.categoryError).toBeNull();
+  });
+
+  it('does not report a duplicate-recipe (23505) insert as a failure', async () => {
+    const sb = fakeSupabase({
+      insert: {
+        recipes: () => ({ error: { code: '23505', message: 'duplicate' } }),
+      },
+    });
+    const result = await createCustomDishInLibrary(sb, '__test_recipe_dupe__', '__test_cat__', null);
+    expect(result.recipeError).toBeNull();
   });
 });

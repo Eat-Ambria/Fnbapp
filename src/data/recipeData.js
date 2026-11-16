@@ -908,28 +908,59 @@ function setPackageSections(pkgName, sections, flatDishes) {
 // V87 — shared "add a brand-new dish to the library" flow, used by every
 // custom-dish-add entry point (Build Menu's MenuEditor, the Proposal Menu
 // Builder, the Booked Functions menu editor) so a new dish always gets the
-// same three things: a dishes_master row, a category tag, and an empty SOP
-// recipe stub to fill in later. Takes the caller's own supabase client
-// (this module stays network-free otherwise) and never throws — upsert
-// conflicts (23505) are expected/harmless, anything else is just warned.
-async function createCustomDishInLibrary(supabase, name, catId) {
-  var res = await supabase.from('dishes_master').upsert({ dish_name: name, is_active: true }, { onConflict: 'dish_name', ignoreDuplicates: true });
-  if (res.error && res.error.code !== '23505') console.warn('dishes_master upsert warning:', res.error);
-  upsertDishMaster(name, { is_active: true });
+// same things: a dishes_master row (with its real catalogue section_id, if
+// the caller has already resolved one via resolveOverrideToCatalogueSectionId
+// — src/lib/catalogueSection.js — NEVER a raw, unresolved placement id), a
+// category tag, and an empty SOP recipe stub to fill in later. Takes the
+// caller's own supabase client (this module stays network-free otherwise).
+// Never throws — upsert conflicts (23505) are expected/harmless — but DOES
+// now return a {masterError, categoryError, recipeError, sectionIdWritten}
+// status object instead of silently warning-and-moving-on, so a caller can
+// actually tell the user something didn't fully save (a dish with no recipe
+// row never reaches Kitchen later, and that used to be invisible).
+async function createCustomDishInLibrary(supabase, name, catId, catalogueSectionId) {
+  var result = { masterError: null, categoryError: null, recipeError: null, sectionIdWritten: null };
+  // Only ever set section_id on a dish that's genuinely new (never seen in
+  // DISH_MASTER yet) — this never overwrites an existing dish's section,
+  // which stays the Dish Library Sections editor's job.
+  var isNewLocally = !DISH_MASTER[name];
+  var row = { dish_name: name, is_active: true };
+  if (catalogueSectionId && isNewLocally) row.section_id = catalogueSectionId;
+  var res = await supabase.from('dishes_master').upsert(row, { onConflict: 'dish_name', ignoreDuplicates: true });
+  // dishes_master.section_id has a real FK to dish_catalogue_sections(id) —
+  // a section deleted since the screen loaded (or any id that slipped past
+  // the caller's own resolution) makes the WHOLE upsert fail, which would
+  // otherwise leave this brand-new dish with no dishes_master row at all.
+  // Retry once without section_id so the dish still gets created — same
+  // outcome as if no section had been picked, not a lost dish.
+  if (res.error && row.section_id && (res.error.code === '23503' || res.error.code === '22P02')) {
+    console.warn('dishes_master section_id rejected, retrying without it:', res.error);
+    delete row.section_id;
+    res = await supabase.from('dishes_master').upsert(row, { onConflict: 'dish_name', ignoreDuplicates: true });
+  }
+  if (res.error && res.error.code !== '23505') { console.warn('dishes_master upsert warning:', res.error); result.masterError = res.error; }
+  // Only claim the section was actually written when the upsert itself
+  // didn't error — `row.section_id` being set just means we TRIED to write
+  // it; a non-FK failure (RLS, network, ...) left it unsaved, and claiming
+  // otherwise here would both mis-set `result.sectionIdWritten` and patch
+  // the in-memory DISH_MASTER cache below with a section that was never
+  // actually persisted.
+  if (!res.error && row.section_id) result.sectionIdWritten = row.section_id;
+  upsertDishMaster(name, result.sectionIdWritten ? { is_active: true, section_id: result.sectionIdWritten } : { is_active: true });
   // catId is optional — a dish added with none picked stays genuinely
   // uncategorized (no recipe stub, no silent catch-all bucket). It then shows
   // up in Kitchen Hub Planning's "Unmapped" list, which is the whole point:
   // the kitchen team needs to see "this dish has no SOP recipe" plainly, not
   // have it quietly folded into a normal-looking category tile where it's
   // easy to miss.
-  if (!catId) return;
+  if (!catId) return result;
   var catRes = await supabase.from('dish_categories').upsert({ dish_name: name, category_id: catId }, { onConflict: 'dish_name' });
-  if (catRes.error) console.warn('dish_categories upsert warning:', catRes.error);
+  if (catRes.error) { console.warn('dish_categories upsert warning:', catRes.error); result.categoryError = catRes.error; }
   upsertDishCat(name, catId);
   var already = (RECIPE_DB.recipes[catId] || []).some(function(r) { return r.n === name; });
   if (!already) {
     var recRes = await supabase.from('recipes').insert({ dish_name: name, category_id: catId, sub: '', steps: [] });
-    if (recRes.error && recRes.error.code !== '23505') console.warn('recipes insert warning:', recRes.error);
+    if (recRes.error && recRes.error.code !== '23505') { console.warn('recipes insert warning:', recRes.error); result.recipeError = recRes.error; }
     else {
       if (!RECIPE_DB.recipes[catId]) RECIPE_DB.recipes[catId] = [];
       RECIPE_DB.recipes[catId].push({ n: name, sub: '', steps: [] });
@@ -937,6 +968,7 @@ async function createCustomDishInLibrary(supabase, name, catId) {
       if (catObj) catObj.count = (RECIPE_DB.recipes[catId] || []).length;
     }
   }
+  return result;
 }
 
 export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, parseFruitSpec, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, isDishNoSopMarked, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, subscribeRecipeRealtime, subscribeDishMetaRealtime, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary };
