@@ -5,8 +5,8 @@
 // zero-quantity ingredients, so every consumer that filters on `q > 0` threw
 // them away and the panel showed one flat list with "Water" in it five times.
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import { getIngrForDish, getIngrForYield, RECIPE_DB, createCustomDishInLibrary, setDishMaster } from './recipeData.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { getIngrForDish, getIngrForYield, RECIPE_DB, createCustomDishInLibrary, setDishMaster, getAllDishes, hydrateRecipeData } from './recipeData.js';
 
 // A miniature two-section recipe in the post-V48 schema.
 const REC = {
@@ -180,5 +180,84 @@ describe('createCustomDishInLibrary', () => {
     });
     const result = await createCustomDishInLibrary(sb, '__test_recipe_dupe__', '__test_cat__', null);
     expect(result.recipeError).toBeNull();
+  });
+});
+
+// getAllDishes's hasRecipe — a dish whose name differs from its recipe's by
+// case/whitespace only must still be recognized as having a recipe (same
+// tiers findRecipeForDish already accepts), without widening into the
+// substring/normalized tiers that function also has (too risky for a GATING
+// decision — see the comment at getAllDishes's own recipeNameLower block).
+RECIPE_DB.cats.push({ id: '__test_cat2__', name: 'Test2', icon: '', color: '#000' });
+RECIPE_DB.recipes['__test_cat2__'] = [{ n: 'Paneer Tikka __t', sub: '', steps: [] }];
+
+describe('getAllDishes hasRecipe', () => {
+  afterEach(() => {
+    setDishMaster({});
+    hydrateRecipeData({ dishNameMap: {} });
+  });
+
+  function dishByName(name) {
+    return getAllDishes({ includeInactive: true }).find(d => d.dish_name === name);
+  }
+
+  it('a case-insensitive exact match resolves (was false before this fix)', () => {
+    setDishMaster({ 'paneer tikka __t': { is_active: true } });
+    expect(dishByName('paneer tikka __t').hasRecipe).toBe(true);
+  });
+
+  it('a case- AND whitespace-insensitive match resolves', () => {
+    setDishMaster({ ' Paneer Tikka __t ': { is_active: true } });
+    expect(dishByName(' Paneer Tikka __t ').hasRecipe).toBe(true);
+  });
+
+  it('an explicit __none__ map entry blocks even a case-insensitive match', () => {
+    setDishMaster({ 'PANEER TIKKA __T': { is_active: true } });
+    hydrateRecipeData({ dishNameMap: { 'PANEER TIKKA __T': '__none__' } });
+    const d = dishByName('PANEER TIKKA __T');
+    expect(d.hasRecipe).toBe(false);
+    expect(d.explicitNone).toBe(true);
+  });
+
+  it('an exact-name recipe match stays true even alongside an exact __none__ entry (preserved, out-of-scope quirk)', () => {
+    setDishMaster({ 'Paneer Tikka __t': { is_active: true } });
+    hydrateRecipeData({ dishNameMap: { 'Paneer Tikka __t': '__none__' } });
+    expect(dishByName('Paneer Tikka __t').hasRecipe).toBe(true);
+  });
+
+  it('an exact map key pointing to a differently-cased recipe resolves, mappedTo shows the recipe\'s real casing', () => {
+    setDishMaster({ '__test_mapped_dish__': { is_active: true } });
+    hydrateRecipeData({ dishNameMap: { '__test_mapped_dish__': 'paneer tikka __t' } });
+    const d = dishByName('__test_mapped_dish__');
+    expect(d.hasRecipe).toBe(true);
+    expect(d.mappedTo).toBe('Paneer Tikka __t'); // the recipe's own casing, not the map value's literal 'paneer tikka __t'
+  });
+
+  it('a map KEY that only matches case-insensitively still resolves (lookupDishNameMap\'s own fallback, mirrored here)', () => {
+    setDishMaster({ '__TEST_CI_KEY__': { is_active: true } });
+    hydrateRecipeData({ dishNameMap: { '__test_ci_key__': 'Paneer Tikka __t' } }); // key differs only in case from the dish name
+    const d = dishByName('__TEST_CI_KEY__');
+    expect(d.hasRecipe).toBe(true);
+    expect(d.mappedTo).toBe('Paneer Tikka __t');
+  });
+
+  it('a __none__ reached only via a case-insensitive map KEY still blocks resolution', () => {
+    setDishMaster({ '__TEST_CI_NONE__': { is_active: true } });
+    hydrateRecipeData({ dishNameMap: { '__test_ci_none__': '__none__' } }); // key differs only in case
+    const d = dishByName('__TEST_CI_NONE__');
+    expect(d.hasRecipe).toBe(false);
+  });
+
+  it('a __none__ dish with no recipe at all stays unmapped', () => {
+    setDishMaster({ '__test_none_dish__': { is_active: true } });
+    hydrateRecipeData({ dishNameMap: { '__test_none_dish__': '__none__' } });
+    const d = dishByName('__test_none_dish__');
+    expect(d.hasRecipe).toBe(false);
+    expect(d.explicitNone).toBe(true);
+  });
+
+  it('a substring-only match does NOT resolve (Tier 2 deliberately excluded)', () => {
+    setDishMaster({ 'Tikka __t': { is_active: true } }); // substring of 'Paneer Tikka __t', not an exact ci match
+    expect(dishByName('Tikka __t').hasRecipe).toBe(false);
   });
 });

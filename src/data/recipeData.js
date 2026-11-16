@@ -774,18 +774,70 @@ function getAllDishes(opts) {
   const includeInactive = !!options.includeInactive;
   const catIdToName = {};
   (RECIPE_DB.cats || []).forEach(c => { catIdToName[c.id] = c.name; });
-  const recipeNameSet = new Set();
+  // hasRecipe used to be a STRICT, case/whitespace-sensitive exact match —
+  // stricter than findRecipeForDish (the function actually used everywhere a
+  // recipe's steps get displayed), which also accepts a case/whitespace-
+  // insensitive match (its Tier 1) and a case/whitespace-insensitive
+  // DISH_NAME_MAP lookup (its Tier 0, via lookupDishNameMap). A dish whose
+  // dishes_master name differed from its recipes.dish_name by case/
+  // whitespace ONLY had a perfectly findable recipe (steps displayed fine)
+  // but hasRecipe said false — which isKitchenTrackedDish/syncAllKitchenMenuMirrors/
+  // getEventItemsByDept all gate on, so the dish never reached events.menu
+  // at all: invisible to Kitchen Hub (Prep Day, Event Day, kitchen_tracking),
+  // and NOT even in Planning's "Unmapped" list (that list is itself built
+  // FROM events.menu, so a dish that never got mirrored in can't appear
+  // there either) — completely silent.
+  //
+  // Fixed by adding findRecipeForDish's Tier 0 (DISH_NAME_MAP, case/
+  // whitespace-insensitive) and Tier 1 (exact name, case/whitespace-
+  // insensitive) here too — built as lookup tables ONCE per call (not
+  // per-dish — this function iterates potentially hundreds of dishes, and
+  // RECIPE_DB/DISH_NAME_MAP are live-patched at module scope by
+  // subscribeRecipeRealtime/hydrateRecipeData, so these must NOT be cached
+  // across calls either). Tier 2 (substring) and Tier 3 (normalized) are
+  // DELIBERATELY excluded here — findRecipeForDish's own comment warns Tier 2
+  // "can false-match short names as substrings of unrelated recipes" (e.g.
+  // "Tea" ⊂ "S-tea-med Chicken Dimsum"); that's an acceptable risk for
+  // DISPLAYING a plausible-if-imperfect recipe's steps, but not for GATING
+  // whether a dish enters Kitchen's live production pipeline at all — a
+  // false positive here would sweep a dish with no real intended recipe
+  // into Prep Day/Event Day under someone else's steps. Verified against a
+  // production data simulation: Tier 0+1 flip exactly 26 real dishes
+  // (all correct matches, e.g. "Kadai paneer" -> "Kadai Paneer"), Tier 2/3
+  // would additionally match 115 dishes, many clearly wrong (e.g.
+  // "Mineral Water 200ml" -> "Water", "Paneer jalebi" -> "Jalebi").
+  const recipeNameSet = new Set();       // exact r.n (unchanged, existing behavior)
+  const recipeNameLower = new Set();     // r.n.toLowerCase() — mirrors findRecipeForDish's Tier 1 exactly (recipe side NOT trimmed there either)
+  const recipeNameLowerTrim = new Set(); // r.n.toLowerCase().trim() — mirrors Tier 0's mapMatch
+  const recipeNameByLowerTrim = new Map(); // normalized -> the recipe's own real-cased name, so mappedTo can show that instead of DISH_NAME_MAP's literal (often differently-cased) value
   (RECIPE_DB.cats || []).forEach(c => {
-    (RECIPE_DB.recipes[c.id] || []).forEach(r => { if (r && r.n) recipeNameSet.add(r.n); });
+    (RECIPE_DB.recipes[c.id] || []).forEach(r => {
+      if (r && r.n) recipeNameSet.add(r.n);
+      if (r && typeof r.n === 'string' && r.n) {
+        recipeNameLower.add(r.n.toLowerCase());
+        const lt = r.n.toLowerCase().trim();
+        recipeNameLowerTrim.add(lt);
+        if (!recipeNameByLowerTrim.has(lt)) recipeNameByLowerTrim.set(lt, r.n);
+      }
+    });
   });
+  // Case/whitespace-insensitive DISH_NAME_MAP index (first matching key
+  // wins) — same result as lookupDishNameMap's own Object.keys(...).find(...),
+  // just precomputed once instead of re-scanned per dish.
+  const nameMapCI = new Map();
+  Object.keys(DISH_NAME_MAP).forEach(k => { const lk = k.toLowerCase().trim(); if (!nameMapCI.has(lk)) nameMapCI.set(lk, DISH_NAME_MAP[k]); });
   const out = [];
   Object.keys(DISH_MASTER).forEach(name => {
     const row = DISH_MASTER[name] || {};
     if (!includeInactive && row.is_active === false) return;
     const catId = DISH_CAT_MAP[name] || null;
+    const lname = name.toLowerCase().trim();
     // hasRecipe: direct name match OR resolvable via DISH_NAME_MAP (excluding __none__ sentinel)
-    const mapped = DISH_NAME_MAP[name];
-    const mappedResolves = mapped && mapped !== '__none__' && recipeNameSet.has(mapped);
+    const mapped = DISH_NAME_MAP[name]; // exact key only — unchanged, still drives explicitNone below
+    const mappedCI = mapped || nameMapCI.get(lname); // === lookupDishNameMap(name)
+    const noSop = mappedCI === '__none__'; // authoritative opt-out, same as findRecipeForDish's early return — blocks the new Tier 0/1 matches below, same as it already blocks findRecipeForDish's own fuzzy tiers
+    const mappedResolves = !!mappedCI && !noSop && recipeNameLowerTrim.has(String(mappedCI).toLowerCase().trim());
+    const ciNameMatch = !noSop && recipeNameLower.has(lname);
     out.push({
       dish_name:       name,
       is_active:       row.is_active !== false,
@@ -793,8 +845,17 @@ function getAllDishes(opts) {
       image_url:       row.image_url || '',
       catId,
       catName:         catId ? (catIdToName[catId] || catId) : null,
-      hasRecipe:       recipeNameSet.has(name) || mappedResolves,
-      mappedTo:        mappedResolves ? mapped : null,
+      // recipeNameSet.has(name) is deliberately left unguarded by `noSop`,
+      // same as before this fix — a couple of real dishes have BOTH an
+      // exact-name recipe AND an explicit __none__ map entry; changing that
+      // would pull them out of Kitchen, a separate, out-of-scope behavior
+      // change (logged in MEMORY.md, not fixed here).
+      hasRecipe:       recipeNameSet.has(name) || mappedResolves || ciNameMatch,
+      // Shows the recipe's own real-cased name (e.g. "Paneer Tikka") rather
+      // than DISH_NAME_MAP's literal stored value (which can be differently
+      // cased, e.g. "paneer tikka") — purely a display nicety for Dish
+      // Library's mapping text, no functional effect.
+      mappedTo:        mappedResolves ? (recipeNameByLowerTrim.get(String(mappedCI).toLowerCase().trim()) || mappedCI) : null,
       explicitNone:    mapped === '__none__',
       hindi:           DISH_HINDI_MAP[name] || '',
       section_id:      row.section_id || null,
