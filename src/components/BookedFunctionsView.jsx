@@ -416,6 +416,16 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
                     <div style={{ fontSize: 12.5, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: chefAckFor(ev) ? C.green : C.muted }}>
                       {chefAckFor(ev) ? ('✓ ' + chefAckFor(ev).by) : '—'}
                     </div>
+                    {(function(){
+                      // Small in-house Restro bookings (<50 pax at "Ambria
+                      // Restro"/"AR") get a "From Restro Kitchen" marker
+                      // under the chef-ack line — same rule the public FP
+                      // hub and Build-menu cards use.
+                      var _rv = String(ev.venue || '').trim().toLowerCase();
+                      var isSmallRestro = (_rv === 'ambria restro' || _rv === 'ar') && (Number(ev.pax) || 0) < 50;
+                      if (!isSmallRestro) return null;
+                      return <div style={{ fontSize: 10.5, fontWeight: 700, color: "#8A5A00", marginTop: 3, whiteSpace: "nowrap" }}>{T2("From Restro Kitchen")}</div>;
+                    })()}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
@@ -487,8 +497,16 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
                 </div>
                 <div style={{ fontSize: 12, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{madeBy || '—'}</div>
                 <div title={chefAck && chefAck.at ? new Date(chefAck.at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : undefined}
-                  style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: chefAck ? C.green : C.muted }}>
-                  {chefAck ? ('✓ ' + chefAck.by) : '—'}
+                  style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: chefAck ? C.green : C.muted }}>
+                    {chefAck ? ('✓ ' + chefAck.by) : '—'}
+                  </div>
+                  {(function(){
+                    var _rv = String(ev.venue || '').trim().toLowerCase();
+                    var isSmallRestro = (_rv === 'ambria restro' || _rv === 'ar') && (Number(ev.pax) || 0) < 50;
+                    if (!isSmallRestro) return null;
+                    return <div style={{ fontSize: 10, fontWeight: 700, color: "#8A5A00", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{T2("From Restro Kitchen")}</div>;
+                  })()}
                 </div>
                 <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
                   <button onClick={function(){ openMenuBuilder(ev, 'items'); }} disabled={!isAdmin} title={isAdmin ? T2("Open Menu Builder") : T2("Admin only")}
