@@ -18,6 +18,7 @@ import { fetchAllRows } from './db.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { getAllDishes } from '../data/recipeData.js';
 import { DEFAULT_DEPT, pinnedDeptForDish } from '../data/salesConfig.js';
+import { resolveDeptForOverrideTarget } from './sectionDept.js';
 
 function normalizePkgName(s) {
   return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -28,22 +29,6 @@ function resolvePkgName(raw) {
   const idx = {};
   Object.keys(MENU_PACKAGES).forEach(name => { idx[normalizePkgName(name)] = name; });
   return idx[normalizePkgName(raw)] || null;
-}
-
-// Same precedence as EventMenuBuilderView's deptForTargetId: a per-event
-// section-override target may point at a package section OR a catalogue
-// section (which may itself defer to its parent section's dept).
-function deptForOverrideTarget(rawId, pkgSecs, sectionsArr) {
-  const id = rawId.indexOf('__unplaced') >= 0 ? rawId.slice(0, rawId.indexOf('__unplaced')) : rawId;
-  const ps = pkgSecs && pkgSecs.find(s => s.id === id);
-  if (ps) return ps.sales_dept || 'kit';
-  const cs = sectionsArr.find(s => s.id === id);
-  if (cs) {
-    if (cs.sales_dept) return cs.sales_dept;
-    const parent = cs.parent_section_id ? sectionsArr.find(s => s.id === cs.parent_section_id) : null;
-    return (parent && parent.sales_dept) || 'kit';
-  }
-  return null;
 }
 
 // Per-event maps that feed resolveDeptForDish — computed once per event from
@@ -71,7 +56,7 @@ function buildEventDeptContext(event, sectionsArr) {
   Object.keys(sectionOverrides).forEach(name => {
     const targetId = sectionOverrides[name];
     if (!targetId) return;
-    const dept = deptForOverrideTarget(targetId, pkgSecs, sectionsArr);
+    const dept = resolveDeptForOverrideTarget(targetId, pkgSecs, sectionsArr);
     if (dept) sectionOverrideDept[name] = dept;
   });
   return { dishNameToPkgDept, sectionOverrideDept };

@@ -31,6 +31,7 @@ import { useMemo } from 'react';
 import { RECIPE_DB, getAllDishes, getCatIdForDish, resolveDishHindi } from '../data/recipeData.js';
 import { MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { DEFAULT_DEPT, DEFAULT_DIET, pinnedDeptForDish } from '../data/salesConfig.js';
+import { resolveDeptForOverrideTarget } from '../lib/sectionDept.js';
 
 // A dish's diet tag: explicit sales_items_meta.diet_tag wins; otherwise fall
 // back to the dish library's veg/non-veg classification (dishes_master.is_veg)
@@ -209,23 +210,11 @@ export function useMenuItemGrouping(params) {
   // tagged dept.
   var sectionOverrideDept = useMemo(function(){
     var pkgSecs = templateInfo.name ? (MENU_PACKAGE_SECTIONS[templateInfo.name] || []) : [];
-    function deptForTargetId(rawId) {
-      var id = rawId.indexOf('__unplaced') >= 0 ? rawId.slice(0, rawId.indexOf('__unplaced')) : rawId;
-      var ps = pkgSecs.find(function(s){ return s.id === id; });
-      if (ps) return ps.sales_dept || 'kit';
-      var cs = sections.find(function(s){ return s.id === id; });
-      if (cs) {
-        if (cs.sales_dept) return cs.sales_dept;
-        var parent = cs.parent_section_id ? sections.find(function(s){ return s.id === cs.parent_section_id; }) : null;
-        return (parent && parent.sales_dept) || 'kit';
-      }
-      return null;
-    }
     var m = {};
     Object.keys(sectionOverrides || {}).forEach(function(name){
       var targetId = sectionOverrides[name];
       if (!targetId) return;
-      var dept = deptForTargetId(targetId);
+      var dept = resolveDeptForOverrideTarget(targetId, pkgSecs, sections);
       if (dept) m[name] = dept;
     });
     return m;
@@ -705,23 +694,7 @@ export function useMenuItemGrouping(params) {
     // skipped here (not just left unplaced), or it leaks into every OTHER
     // dept tab too as a stray pill labelled with its raw id.
     function deptForTargetId(rawId) {
-      var id = rawId.indexOf('__unplaced') >= 0 ? rawId.slice(0, rawId.indexOf('__unplaced')) : rawId;
-      var ps = pkgSecs.find(function(s){ return s.id === id; });
-      if (ps) return ps.sales_dept || 'kit';
-      // A target can also be a package SUBSECTION id (see the subsections
-      // handling above) — its own sales_dept if set, else its parent
-      // package-section's, matching dishNameToPkgDept's same inheritance.
-      for (var i = 0; i < pkgSecs.length; i++) {
-        var subMatch = (pkgSecs[i].subsections || []).find(function(sub){ return sub.id === id; });
-        if (subMatch) return subMatch.sales_dept || pkgSecs[i].sales_dept || 'kit';
-      }
-      var cs = sections.find(function(s){ return s.id === id; });
-      if (cs) {
-        if (cs.sales_dept) return cs.sales_dept;
-        var parent = cs.parent_section_id ? sections.find(function(s){ return s.id === cs.parent_section_id; }) : null;
-        return (parent && parent.sales_dept) || 'kit';
-      }
-      return null;
+      return resolveDeptForOverrideTarget(rawId, pkgSecs, sections);
     }
 
     // '__extras__' (an explicit "place in Extras" choice) and any other
