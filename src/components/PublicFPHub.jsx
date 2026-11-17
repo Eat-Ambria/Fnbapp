@@ -177,11 +177,30 @@ export function PublicFPHub({ lang = "en" }) {
   // The calendar itself shows every function, past or future, so picking an
   // older date still lists (and links to) its Function Plan — the badge
   // above stays "upcoming"-only, this just feeds the day cells/dots/list.
+  // Within a day, bucket by venue first so partners/kitchen staff reading the
+  // list on their phone see all Manaktala functions together (morning→night),
+  // then Exotica, then Pushpanjali, then Restro — instead of the venues
+  // interleaving by time. Substring match (case-insensitive) so "Manaktala
+  // Farm", "Ambria Manaktala" and similar variants all bucket together. Any
+  // venue not in the priority list sorts after the named four. Within each
+  // bucket, time still orders ascending.
+  var VENUE_PRIORITY = ["manaktala", "exotica", "pushpanjali", "restro"];
+  function venueRank(v) {
+    var s = String(v || "").toLowerCase();
+    for (var i = 0; i < VENUE_PRIORITY.length; i++) {
+      if (s.indexOf(VENUE_PRIORITY[i]) !== -1) return i;
+    }
+    return VENUE_PRIORITY.length;
+  }
   var eventsByDate = useMemo(function(){
     var m = {};
     safeArr(events).forEach(function(e){ if (e.date) (m[e.date] = m[e.date] || []).push(e); });
     Object.keys(m).forEach(function(date){
-      m[date].sort(function(a, b){ return (a.time || '').localeCompare(b.time || ''); });
+      m[date].sort(function(a, b){
+        var rv = venueRank(a.venue) - venueRank(b.venue);
+        if (rv !== 0) return rv;
+        return (a.time || '').localeCompare(b.time || '');
+      });
     });
     return m;
   }, [events]);
