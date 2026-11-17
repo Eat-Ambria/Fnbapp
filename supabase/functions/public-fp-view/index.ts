@@ -53,14 +53,13 @@ async function fetchAllRows(build: () => any, pageSize = 1000, maxRows = 100000)
   return all;
 }
 
-// Same hidden-booking rule as src/utils/helpers.js's isHiddenSmallRestroBooking
-// -- a tiny walk-in at the in-house restro venue is not a real "function" and
-// was never meant to show up on a public functions calendar either.
+// Was: small Restro walk-ins (<50 pax at "ambria restro"/"ar") were hidden
+// from the public FP calendar. As of 2026-11-17 those are shown too; the
+// client tags them "From Restro Kitchen" (see PublicFPHub.jsx) so the audience
+// still knows this is a small in-house booking cooked out of the restro
+// kitchen rather than a normal banquet function. Venue-match set kept for the
+// client tag to stay in sync with what used to be hidden.
 const RESTRO_VENUE_VALUES = new Set(["ambria restro", "ar"]);
-function isHiddenSmallRestroBooking(ev: any): boolean {
-  const v = String(ev?.venue || "").trim().toLowerCase();
-  return RESTRO_VENUE_VALUES.has(v) && (Number(ev?.pax) || 0) < 50;
-}
 
 function normalizePkgName(s: string | null | undefined): string {
   return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -152,8 +151,7 @@ Deno.serve(async (req) => {
         fetchAllRows(() => sb.from("events").select(EVENT_LIST_COLUMNS).or("is_deleted.is.null,is_deleted.eq.false")),
         fetchAllRows(() => sb.from("event_function_plans").select("event_id, locked, sent_to_kitchen, created_by, chef_ack_by, chef_ack_at")),
       ]);
-      const events = evRows.filter((e) => !isHiddenSmallRestroBooking(e));
-      return json({ ok: true, events, fpStatus: fpRows });
+      return json({ ok: true, events: evRows, fpStatus: fpRows });
     }
 
     if (body.action === "detail") {
