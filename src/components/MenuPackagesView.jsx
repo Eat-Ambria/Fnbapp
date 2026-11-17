@@ -1690,6 +1690,22 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                             fontWeight: 700, background: fpSt.bg, color: fpSt.color, border: "1px solid " + fpSt.border, whiteSpace: "nowrap" }}>
                             {T2("FP")}: {fpSt.label}
                           </span>
+                          {(function(){
+                            // Small in-house Restro bookings (<50 pax at
+                            // "Ambria Restro"/"AR") carry a "From Restro
+                            // Kitchen" pill — same rule the public FP hub
+                            // uses. Venue-set stays in sync with the
+                            // public-fp-view edge fn's RESTRO_VENUE_VALUES.
+                            var _rv = String(ev.venue || '').trim().toLowerCase();
+                            var isSmallRestro = (_rv === 'ambria restro' || _rv === 'ar') && (Number(ev.pax) || 0) < 50;
+                            if (!isSmallRestro) return null;
+                            return (
+                              <span style={{ padding: "3px 10px", borderRadius: 999, fontFamily: K.fontBody, fontSize: 10.5,
+                                fontWeight: 700, background: "#FFF4E0", color: "#8A5A00", border: "1px solid #F1C66A", whiteSpace: "nowrap" }}>
+                                {T2("From Restro Kitchen")}
+                              </span>
+                            );
+                          })()}
                           {fpByFor(ev) && (
                             <span style={{ fontFamily: K.fontBody, fontSize: 11, color: K.hdrMeta, fontStyle: "italic" }}>
                               {fpByFor(ev)}

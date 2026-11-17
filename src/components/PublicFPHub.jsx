@@ -384,6 +384,12 @@ export function PublicFPHub({ lang = "en" }) {
                 var clickable = fpSt.key === 'ready';
                 var badgeTone = fpSt.key === 'ready' ? { bg: K.okBg, fg: K.ok, border: K.okBorder }
                   : { bg: "#FFFFFF", fg: K.textFaint, border: K.cardWarmLine };
+                // Small in-house Restro bookings (<50 pax at "Ambria Restro"/
+                // "AR") get a secondary tag so the audience knows this is not
+                // a normal banquet function. Matches the venue-set used by the
+                // public-fp-view edge function (was previously the hide rule).
+                var _rv = String(ev.venue || '').trim().toLowerCase();
+                var isSmallRestro = (_rv === 'ambria restro' || _rv === 'ar') && (Number(ev.pax) || 0) < 50;
                 return (
                   <div key={ev.id} style={{ position: "relative", marginBottom: 12 }}>
                     <button onClick={function(){ if (clickable) openEvent(ev); }}
@@ -401,6 +407,12 @@ export function PublicFPHub({ lang = "en" }) {
                             background: badgeTone.bg, color: badgeTone.fg, border: "1px solid " + badgeTone.border, whiteSpace: "nowrap" }}>
                             {fpSt.label}
                           </span>
+                          {isSmallRestro && (
+                            <span style={{ padding: "3px 10px", borderRadius: 999, fontSize: 10.5, fontWeight: 700,
+                              background: "#FFF4E0", color: "#8A5A00", border: "1px solid #F1C66A", whiteSpace: "nowrap" }}>
+                              {T2("From Restro Kitchen")}
+                            </span>
+                          )}
                         </span>
                         <span style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 7, fontSize: 12.5, color: K.hdrMeta }}>
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="building" size={13} strokeWidth={1.9} />{ev.venue || "—"}</span>
