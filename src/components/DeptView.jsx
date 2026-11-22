@@ -2,7 +2,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import { C, ALL_DEPARTMENTS, SECTION_META, AMBRIA_VENUES, VEHICLES, COLD_ITEMS } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, TODAY_LABEL, safeArr, safeNum, safePct, safeObj, TOMORROW, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, storeItemKey, markAllCollected, mergeDishState } from '../utils/helpers.js';
+import { TODAY, TODAY_LABEL, safeArr, safeNum, safePct, safeObj, TOMORROW, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, storeItemKey, markAllCollected, mergeDishState, stepDone } from '../utils/helpers.js';
+import { kitchenDishState, isKitchenDishReady, kitchenTrackableDishes } from '../lib/kitchenDishKey.js';
 import { GROOMING_CHECKS } from '../data/staffData.js';
 import { MENU_PACKAGES, describeEventMenu } from '../data/menuPackages.js';
 import { Avatar, DonutChart, Card, Btn, Chip, STag } from './SharedUI.jsx';
@@ -537,17 +538,28 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
       {/* ══════ KITCHEN: Kitchen Tasks ══════ */}
       {selDept==="kitchen"&&activeTab==="kitchen"&&(()=>{
         const secDishes = {};
+        const kt = safeObj(kitchenTracking);
         todayEvs.forEach(ev=>{
-          (ev.menu||[]).forEach((name,idx)=>{
-            if(sectionForDish(name)==="Beverages"||sectionForDish(name)==="Fruits") return; // handled by their own depts
+          // kitchenTrackableDishes already excludes outsourced/pinned-dept/
+          // Beverages/Fruit-selection dishes and whole external-caterer
+          // events — the exact set Kitchen's own sign-off screen
+          // (EventDayTab.jsx) can ever mark ready. Using the event's raw
+          // menu here (even filtered to just Beverages/Fruits) used to count
+          // dishes Kitchen can never sign off against this total, so "ready"
+          // could never reach 100% for such an event no matter how much was
+          // actually finished.
+          kitchenTrackableDishes(ev).forEach((name)=>{
             const sec = sectionForDish(name);
             if(!secDishes[sec]) secDishes[sec]=[];
-            const dId = ev.id+"|"+idx;
-            const kt = safeObj(kitchenTracking);
-            const tracked = safeObj(kt[ev.id])?.[dId];
-            const steps = tracked?.steps || getStepsForDish(name);
-            const done = safeArr(tracked?.done);
-            secDishes[sec].push({name,ev:ev.guest,evTime:ev.time,pct:safePct(done.length,steps.length)});
+            const tracked = kitchenDishState(kt, ev.id, name);
+            const steps = getStepsForDish(name);
+            // tracked.ready (the chef's final sign-off) is the real "done" signal —
+            // nothing ever writes a plain `.done` array (that was always reading
+            // as empty, alongside the wrong evId|idx key this replaces). Short of
+            // that, approximate from per-step completion via stepDone (handles
+            // substeps and the legacy manual-key shapes — see helpers.js).
+            const pct = tracked.ready ? 100 : (steps.length ? safePct(steps.filter((s,si)=>stepDone(tracked,si,s)).length, steps.length) : 0);
+            secDishes[sec].push({name,ev:ev.guest,evTime:ev.time,pct});
           });
         });
         return (
@@ -1357,10 +1369,9 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
             {allEvs.length===0&&<div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No events today")}</div>}
 
             {allEvs.map(ev=>{
-              const menu=safeArr(ev.menu).filter(d=>sectionForDish(d)!=="Beverages"&&sectionForDish(d)!=="Fruits");
+              const menu=kitchenTrackableDishes(ev);
               const needsDispatch=!/pushpanjali|exotica/i.test(ev.venue);
-              const readyItems=menu.filter((_,idx)=>{const d=kt[ev.id]?.[`d_${idx}`];return d?.ready;});
-              const dispatchedItems=menu.filter((_,idx)=>{const d=kt[ev.id]?.[`d_${idx}`];return d?.dispatchReady;});
+              const readyItems=menu.filter(name=>isKitchenDishReady(kt,ev.id,name));
               const allReady=readyItems.length===menu.length&&menu.length>0;
               const fullDispatched=!!(kt[ev.id]?.__dispatch_ready);
 
@@ -1380,9 +1391,15 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
 
                   {needsDispatch&&<div style={{padding:"10px 16px"}}>
                     {menu.map((name,idx)=>{
-                      const d=kt[ev.id]?.[`d_${idx}`]||{};
+                      const d=kitchenDishState(kt,ev.id,name);
                       const isReady=!!d.ready;
-                      const isDispatched=!!d.dispatchReady;
+                      // No per-dish "mark picked up" control exists anywhere in the
+                      // app — d.dispatchReady/d.dispatchAt have no writer (see
+                      // MEMORY.md Open Items). fullDispatched (the real, written
+                      // whole-event __dispatch_ready flag) is folded in here so this
+                      // badge still correctly flips once the function as a whole has
+                      // been dispatched, instead of staying stuck forever.
+                      const isDispatched=!!d.dispatchReady||fullDispatched;
                       const sec=sectionForDish(name);
                       const m2=SECTION_META[sec]||{color:C.muted,icon:"🍽"};
                       return(
@@ -1431,7 +1448,7 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
             {dispatchEvs.length===0&&<div style={{textAlign:"center",padding:24,background:C.surface,borderRadius:12,border:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>{T2("No venues need dispatch today")}</div>}
 
             {dispatchEvs.map(ev=>{
-              const menu=safeArr(ev.menu).filter(d=>sectionForDish(d)!=="Beverages"&&sectionForDish(d)!=="Fruits");
+              const menu=kitchenTrackableDishes(ev);
               const ck=loadChecks[ev.id]||{};
               const loaded=Object.values(ck).filter(Boolean).length;
               const hasCold=menu.some(d=>COLD_ITEMS.some(ci=>d.toLowerCase().includes(ci.toLowerCase())));
@@ -1461,7 +1478,7 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
                   <div style={{padding:"10px 16px"}}>
                     {allItems.map(item=>{
                       const checked=!!ck[item.id];
-                      const foodReady=item.isFood?!!(kt[ev.id]?.[`d_${item.id.replace("food_","")}`]?.ready):true;
+                      const foodReady=item.isFood?isKitchenDishReady(kt,ev.id,item.name):true;
                       return(
                         <div key={item.id} onClick={()=>{if(!item.isFood||foodReady){const nextVal=!checked;setLoadChecks(p=>({...p,[ev.id]:{...(p[ev.id]||{}),[item.id]:nextVal}}));persistCheck(ev.id,'transport_load',item.id,nextVal);}}}
                           style={{display:"flex",gap:10,alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.borderLight}`,cursor:(!item.isFood||foodReady)?"pointer":"default",opacity:item.isFood&&!foodReady?.4:1}}>
@@ -1543,8 +1560,8 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
                   <div style={{fontSize:12,fontWeight:700,color:group.color,marginBottom:8,textTransform:"uppercase"}}>{group.label} ({group.evs.length})</div>
                   {group.evs.map(ev=>{
                     const isSel=activeOdcId===ev.id;
-                    const menu=safeArr(ev.menu).filter(d=>sectionForDish(d)!=="Beverages"&&sectionForDish(d)!=="Fruits");
-                    const readyCount=menu.filter((_,i)=>{const d=kt[ev.id]?.[`d_${i}`];return d?.ready||d?.dispatchReady;}).length;
+                    const menu=kitchenTrackableDishes(ev);
+                    const readyCount=menu.filter(name=>{const d=kitchenDishState(kt,ev.id,name);return d.ready||d.dispatchReady;}).length;
                     return(
                       <Card key={ev.id} onClick={()=>setSelOdcId(isSel?null:ev.id)} style={{marginBottom:8,padding:0,overflow:"hidden",cursor:"pointer",border:`2px solid ${isSel?C.gold:C.border}`}}>
                         <div style={{padding:"14px 16px"}}>
@@ -1573,7 +1590,7 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
                               menu.forEach((n,i)=>{const s=sectionForDish(n);if(!bySec[s])bySec[s]=[];bySec[s].push({name:n,idx:i});});
                               return Object.entries(bySec).map(([sec,items])=>{
                                 const m2=SECTION_META[sec]||{color:C.muted,icon:"🍽"};
-                                const rd=items.filter(d=>{const dk=kt[ev.id]?.[`d_${d.idx}`];return dk?.ready||dk?.dispatchReady;}).length;
+                                const rd=items.filter(it=>{const d=kitchenDishState(kt,ev.id,it.name);return d.ready||d.dispatchReady;}).length;
                                 return(
                                   <div key={sec} style={{marginBottom:6}}>
                                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
@@ -1582,7 +1599,8 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
                                     </div>
                                     <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
                                       {items.map((d,di)=>{
-                                        const rdy=!!(kt[ev.id]?.[`d_${d.idx}`]?.ready||kt[ev.id]?.[`d_${d.idx}`]?.dispatchReady);
+                                        const st=kitchenDishState(kt,ev.id,d.name);
+                                        const rdy=!!(st.ready||st.dispatchReady);
                                         return <span key={di} style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:rdy?C.greenBg:C.surface,border:`1px solid ${rdy?C.greenBorder:C.border}`,color:rdy?C.green:C.text}}>{rdy?"✓ ":""}{d.name}</span>;
                                       })}
                                     </div>

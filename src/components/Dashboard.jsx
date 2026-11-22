@@ -12,7 +12,8 @@ import { useIsMobile } from '../utils/useIsMobile.js';
 import { MenuEditor } from './MenuEditor.jsx';
 import DishMappingModal from './DishMappingModal.jsx';
 import { MENU_PACKAGES, describeEventMenu } from '../data/menuPackages.js';
-import { guessSectionForDish, findRecipeForDish, resolveDishStore, isDishNoSopMarked } from '../data/recipeData.js';
+import { findRecipeForDish, resolveDishStore, isDishNoSopMarked } from '../data/recipeData.js';
+import { isKitchenDishReady, kitchenTrackableDishes } from '../lib/kitchenDishKey.js';
 import { EVENT_VENUES } from '../data/staffData.js';
 import { logActivity } from './ActivityLog.jsx';
 import { supabase } from '../lib/supabase.js';
@@ -1361,8 +1362,8 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             {todayEvs.map(ev=>{
               const p=gp(ev.venue);
-              const evMenu = Array.isArray(ev.menu)?ev.menu.filter(d=>guessSectionForDish(d)!=="Beverages"):[];
-              const evReady = evMenu.filter((_,i)=>{const d=kt[ev.id]?.[ev.id+"|"+i];return d?.ready;}).length;
+              const evMenu = kitchenTrackableDishes(ev);
+              const evReady = evMenu.filter(name=>isKitchenDishReady(kt,ev.id,name)).length;
               const allReady = evMenu.length>0&&evReady>=evMenu.length;
               return(
                 // Not a click target itself — Edit and Delete sit on the card.

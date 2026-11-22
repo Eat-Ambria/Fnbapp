@@ -5,7 +5,7 @@
 // by a stale copy. Every case below is one of the ways that happened.
 
 import { describe, it, expect } from 'vitest';
-import { mergeDishState, storeItemKey, markAllCollected, isSessionAuthError, ktReplayReconcileJobs, ktCatchUpOnStatus, ktCatchUpWaitMs, KT_CATCHUP_INITIAL } from './helpers.js';
+import { mergeDishState, storeItemKey, markAllCollected, isSessionAuthError, ktReplayReconcileJobs, ktCatchUpOnStatus, ktCatchUpWaitMs, KT_CATCHUP_INITIAL, stepDone } from './helpers.js';
 
 describe('mergeDishState', () => {
   it('records a first step', () => {
@@ -319,5 +319,41 @@ describe('ktCatchUpWaitMs', () => {
 
   it('exactly at the boundary waits zero', () => {
     expect(ktCatchUpWaitMs(16000, 1000, 15000)).toBe(0);
+  });
+});
+
+describe('stepDone', () => {
+  it('a plain numeric manual key marks the step done', () => {
+    expect(stepDone({ manual: { 0: true } }, 0)).toBe(true);
+  });
+
+  it('the legacy "step_N" manual key also marks the step done', () => {
+    expect(stepDone({ manual: { step_2: true } }, 2)).toBe(true);
+  });
+
+  it('the legacy string-numeric manual key also marks the step done', () => {
+    expect(stepDone({ manual: { '3': true } }, 3)).toBe(true);
+  });
+
+  it('no manual entry for this step at all is not done', () => {
+    expect(stepDone({ manual: { 0: true } }, 1)).toBe(false);
+    expect(stepDone({}, 0)).toBe(false);
+  });
+
+  it('mesaDone marks only steps 0 and 1 (D-1 prep) done, never a later step', () => {
+    expect(stepDone({ mesaDone: true }, 0)).toBe(true);
+    expect(stepDone({ mesaDone: true }, 1)).toBe(true);
+    expect(stepDone({ mesaDone: true }, 2)).toBe(false);
+  });
+
+  it('a step with substeps requires EVERY substep done, ignoring any plain manual[si] key for the step itself', () => {
+    const stepObj = { subs: [{}, {}] };
+    expect(stepDone({ manual: { 5: true } }, 5, stepObj)).toBe(false); // the step's own key is irrelevant once it has subs
+    expect(stepDone({ manual: { step_5_sub_0: true } }, 5, stepObj)).toBe(false); // only one of two subs done
+    expect(stepDone({ manual: { step_5_sub_0: true, step_5_sub_1: true } }, 5, stepObj)).toBe(true);
+  });
+
+  it('an empty subs array is treated the same as no subs at all', () => {
+    expect(stepDone({ manual: { 0: true } }, 0, { subs: [] })).toBe(true);
   });
 });

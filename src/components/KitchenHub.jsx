@@ -16,6 +16,7 @@ import { supabase } from '../lib/supabase.js';
 import { opsSupabase } from '../lib/opsSupabase.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES, describeEventMenu } from '../data/menuPackages.js';
 import { getSectionForDish, getCatIdForDish, getCatForDish, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, isDishNoSopMarked, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishStore } from '../data/recipeData.js';
+import { kitchenDishKey } from '../lib/kitchenDishKey.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { K, type, tone } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
@@ -2193,7 +2194,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
   // instead (same scheme ck() below already uses for the combined bucket,
   // which never had this bug) makes a dish's tracking immune to its menu
   // position ever changing again.
-  function dk(evId,dishName){return evId+"|"+dishName;}
+  function dk(evId,dishName){return kitchenDishKey(evId,dishName);}
   // Every row ever written before this change used the old idx-based key —
   // dkLegacy + the read-side fallback in ds() below keep that history
   // readable (by whatever index the dish CURRENTLY occupies) instead of

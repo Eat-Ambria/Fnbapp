@@ -375,6 +375,25 @@ function diffDishState(prev, next) {
   return patch;
 }
 
+// Is step `si` of a dish done, given its kitchen_tracking state `d`? Checks
+// three manual-key shapes (`manual[si]`, the legacy `manual['step_'+si]`,
+// and `manual[String(si)]` — different app versions have written each one,
+// see EventDayTab.jsx's own original comment on this), falls back to
+// mesaDone for the first two (D-1 prep) steps, and — when `stepObj` is
+// passed and carries its own `.subs` — requires every substep done instead
+// of the step's own (never-written) key. Moved here from EventDayTab.jsx so
+// DeptView.jsx's own per-dish progress readers can share this exact
+// definition instead of reinventing a simpler, substep/legacy-shape-blind
+// version that would silently under-count a dish's real progress.
+function stepDone(d, si, stepObj) {
+  if (stepObj && Array.isArray(stepObj.subs) && stepObj.subs.length > 0) {
+    return stepObj.subs.every((_, sbi) => !!(d.manual && d.manual['step_' + si + '_sub_' + sbi]));
+  }
+  if (d.manual?.[si] || d.manual?.['step_' + si] || d.manual?.[String(si)]) return true;
+  if (d.mesaDone && si <= 1) return true;
+  return false;
+}
+
 // Lists the exact dotted "key_ts path" string(s) a diffDishState patch
 // touches — e.g. {manual:{s1:true}} -> ["manual.s1"], {__whole:false} ->
 // ["__whole"]. Mirrors exactly how kt_set_paths (the matching server-side
@@ -511,4 +530,4 @@ function isSessionAuthError(e) {
   return /jwt/i.test(String(e.message || ''));
 }
 
-export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, normIngName, categorizeIngredientWithOverride, mergeDishState, diffDishState, ktPatchPaths, ktReplayReconcileJobs, ktCatchUpOnStatus, ktCatchUpWaitMs, KT_CATCHUP_INITIAL, KT_CATCHUP_MIN_INTERVAL_MS, KT_CATCHUP_MAX_FAILURES, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto, uploadFPLayoutPhoto, isSessionAuthError };
+export { localDateStr, TODAY, TODAY_LABEL, CUR_YEAR, relDate, TOMORROW, DAY_AFTER, LIVE_EVENTS_INIT, safeArr, safeObj, safeStr, safeNum, safePct, safeDivide, safeJSON, safeStorage, safeStorageSet, calcDispatch, fmtStamp, compressImage, uploadStaffPhoto, transliterateName, recipeNameOf, detectPackageDiet, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, normIngName, categorizeIngredientWithOverride, mergeDishState, diffDishState, stepDone, ktPatchPaths, ktReplayReconcileJobs, ktCatchUpOnStatus, ktCatchUpWaitMs, KT_CATCHUP_INITIAL, KT_CATCHUP_MIN_INTERVAL_MS, KT_CATCHUP_MAX_FAILURES, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey, uploadMenuPhoto, uploadFPLayoutPhoto, isSessionAuthError };

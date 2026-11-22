@@ -1,10 +1,10 @@
 // Ambria FnB — Event Day Tab (redesigned)
 // Place in: src/components/EventDayTab.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { pinnedDeptForDish } from '../data/salesConfig.js';
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { TODAY, safeArr, safePct, localDateStr, fmtStamp, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected } from '../utils/helpers.js';
+import { TODAY, safeArr, safePct, localDateStr, fmtStamp, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected, stepDone } from '../utils/helpers.js';
+import { kitchenDishKey, kitchenMenuArr } from '../lib/kitchenDishKey.js';
 import { getCatIdForDish, getCatForDish, isFruitSelectionDish, RECIPE_DB, getFullSteps, getStepsForDish, fmtT, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, findRecipeForDish, dishLabel, getDishImageUrl } from '../data/recipeData.js';
 import { K, type, tone } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
@@ -27,14 +27,6 @@ function cleanStepText(text) {
 
 // ── Timer helpers (never auto-complete, show overrun) ──
 function elapsed(d, si) { return d.starts?.[si] ? Math.floor((Date.now() - d.starts[si]) / 1000) : 0; }
-function stepDone(d, si, stepObj) {
-  if (stepObj && Array.isArray(stepObj.subs) && stepObj.subs.length > 0) {
-    return stepObj.subs.every((_, sbi) => !!(d.manual && d.manual['step_' + si + '_sub_' + sbi]));
-  }
-  if (d.manual?.[si] || d.manual?.['step_' + si] || d.manual?.[String(si)]) return true;
-  if (d.mesaDone && si <= 1) return true;
-  return false;
-}
 function isD1Step(d, si) { return d.mesaDone && si <= 1; }
 function isOverdue(d, si) {
   if (stepDone(d, si)) return false;
@@ -149,7 +141,7 @@ function EventDayTab({
   // Keying by the dish's own NAME instead (same scheme ck() below already
   // uses for the combined bucket, which never had this bug) makes a dish's
   // tracking immune to its menu position ever changing again.
-  function dk(evId, dishName) { return evId + "|" + dishName; }
+  function dk(evId, dishName) { return kitchenDishKey(evId, dishName); }
   // Every row ever written before this change used the old idx-based key —
   // dkLegacy + the read-side fallback in ds() below keep that history
   // readable (by whatever index the dish CURRENTLY occupies) instead of
@@ -459,26 +451,20 @@ function EventDayTab({
     const d = ds(evId, idx, dishInfo?.name);
     setDs(evId, idx, { starts: { ...(d.starts || {}), [si]: Date.now() }, stepTm: { ...(d.stepTm || {}), [si]: tm } }, dishInfo);
   }
-  // Outsourced dishes (Build Menu/Menu Builder toggle) are dropped here so
-  // they never show up in D-1/prep tracking — mirrors KitchenHub.jsx's menuArr.
+  // Outsourced dishes (Build Menu/Menu Builder toggle), ice-cream/tea/coffee
+  // (pinned to Beverages), and an external caterer's whole menu are all
+  // dropped here so they never show up in D-1/prep tracking — now shared
+  // with every OTHER "what can Kitchen ever sign off on" reader in the app
+  // (src/lib/kitchenDishKey.js's kitchenMenuArr/kitchenTrackableDishes) so
+  // none of them can again silently disagree with what this screen actually
+  // shows (see MEMORY.md, 2026-11-22). The Beverages-category/fruit-selection
+  // filter is NOT folded in here on purpose — see kitchenMenuArr's own
+  // comment: it must stay applied INSIDE the byDish loop below, after idx is
+  // assigned, so idx keeps indexing the exact same array shape it always did
+  // (a legacy per-position kitchen_tracking fallback in ds()/setDs() depends
+  // on that index not shifting).
   function menuArr(ev) {
-    // A third-party caterer on-site means this kitchen cooks none of this
-    // event's menu — same reasoning as outsourced dishes below, just at the
-    // whole-event level.
-    if (ev.external_caterer) return [];
-    const m = ev.menu;
-    let arr;
-    if (Array.isArray(m)) arr = m;
-    else if (typeof m === 'string' && m) { try { arr = JSON.parse(m); } catch { arr = []; } }
-    else arr = [];
-    const out = ev.outsourced_dishes;
-    if (Array.isArray(out) && out.length > 0) {
-      const skip = new Set(out);
-      arr = arr.filter(n => !skip.has(n));
-    }
-    // Ice cream / tea / coffee belong to Beverages, even on an event whose menu mirror has not been re-derived yet.
-    arr = arr.filter(n => !pinnedDeptForDish(n));
-    return arr;
+    return kitchenMenuArr(ev);
   }
 
   // ── Function filter ──
