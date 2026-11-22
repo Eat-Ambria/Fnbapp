@@ -1,7 +1,7 @@
 ﻿// Ambria FnB — Kitchen Hub (Overview, Prep Tracking, Prep Plan, Recipe SOPs)
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { pinnedDeptForDish } from '../data/salesConfig.js';
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, TODAY_LABEL, safeArr, safeNum, safePct, localDateStr, fmtStamp, recipeNameOf, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, normIngName, categorizeIngredientWithOverride, mergeDishState, storeItemKey, markAllCollected, uploadRecipePhoto, slugRecipeKey } from '../utils/helpers.js';
@@ -16,7 +16,7 @@ import { supabase } from '../lib/supabase.js';
 import { opsSupabase } from '../lib/opsSupabase.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES, describeEventMenu } from '../data/menuPackages.js';
 import { getSectionForDish, getCatIdForDish, getCatForDish, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, isDishNoSopMarked, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishStore } from '../data/recipeData.js';
-import { kitchenDishKey } from '../lib/kitchenDishKey.js';
+import { kitchenDishKey, dishesTrackedByEvents, combinedBucketAfterPartialReset } from '../lib/kitchenDishKey.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { K, type, tone } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
@@ -944,13 +944,49 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
 
   // Shared by both paths (single function goes straight to confirm, multiple
   // goes through the picker) so the delete behaves identically either way.
-  function runReset(targetIds, doneLabel){
+  // `partial` (optional): {combinedId, resetEvIds, survivingEvIds} — passed
+  // whenever targetIds resets SOME but not ALL of a day's functions, so the
+  // shared "__combined_"+day bucket (deliberately NOT in targetIds in that
+  // case — wiping it would also erase the surviving functions' own combined
+  // progress) gets corrected instead of silently going stale. See
+  // combinedBucketAfterPartialReset's own header comment in
+  // src/lib/kitchenDishKey.js for why this is needed at all. Omitted for a
+  // full-day reset (targetIds already includes the combined id directly) or
+  // a single-function reset with no other function that day to share with.
+  function runReset(targetIds, doneLabel, partial){
     setResetModal(null);
     setResetPick(null);
-    setKitchenTracking(p=>{
-      const o = (p&&typeof p==="object") ? {...p} : {};
-      targetIds.forEach(id => { delete o[id]; });
-      return o;
+    // Which dishes the reset events were tracking — computed from the state
+    // as it is RIGHT NOW, since it needs their own rows before the delete
+    // below removes them. Deliberately just the NAMES, not a full
+    // correction: a correction computed from this same early snapshot and
+    // applied later (after the round-trip below) would silently revert
+    // anything that changed in the meantime — another tablet's realtime
+    // echo, a local tap on an untouched dish, a survivor starting a touched
+    // dish. The actual combined-bucket rebuild happens later, against the
+    // LATEST state, once it's safe to apply (see below). Caught by
+    // adversarial review 2026-11-22.
+    //
+    // flushSync: two setState calls already ran above this one in the same
+    // click handler (setResetModal/setResetPick) — React does not guarantee
+    // this updater runs eagerly/synchronously just because it's called from
+    // an event handler (confirmed empirically against this project's real
+    // react-dom build during review: a later setState call in the same
+    // interaction is NOT guaranteed the same-tick treatment a fresh one
+    // gets). `touchedNames` isn't actually READ until after the import()+
+    // network round-trip below, by which point React will certainly have
+    // flushed this update on its own regardless — but that's relying on
+    // "always happens in practice" rather than an actual guarantee, which is
+    // exactly the gap this same review found a real bug in just below (the
+    // second setKitchenTracking call, where there's no such natural delay).
+    let touchedNames = null;
+    flushSync(() => {
+      setKitchenTracking(p=>{
+        const o = (p&&typeof p==="object") ? {...p} : {};
+        if (partial) touchedNames = dishesTrackedByEvents(p, partial.resetEvIds);
+        targetIds.forEach(id => { delete o[id]; });
+        return o;
+      });
     });
     try{localStorage.removeItem('ambria_kitchen_tracking');}catch(e){}
     try{localStorage.removeItem('ambria_kt');}catch(e){}
@@ -968,7 +1004,55 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
           setResetModal({ tone:"danger", icon:"alert", title:T2("Reset failed"), body:r.error.message });
           return;
         }
-        setResetModal({ tone:"ok", icon:"check", title:T2("Reset complete"), body:doneLabel });
+        if (!touchedNames || touchedNames.length === 0){
+          setResetModal({ tone:"ok", icon:"check", title:T2("Reset complete"), body:doneLabel });
+          return;
+        }
+        // The reset functions' own rows are confirmed gone — safe to
+        // rebuild the combined bucket now. Computed against the LATEST
+        // state (not the snapshot above), so anything that arrived during
+        // the round-trip (a realtime echo, a tap on an untouched or even a
+        // touched dish) is preserved rather than reverted.
+        //
+        // flushSync, not a plain setKitchenTracking call: this runs inside a
+        // promise callback (after the import()+delete round-trip), by which
+        // point this component has already re-rendered once from the FIRST
+        // setKitchenTracking call above — React does not guarantee running a
+        // later updater like this one synchronously/eagerly just because an
+        // earlier one in the same function happened to (confirmed empirically
+        // against this project's actual react-dom build during adversarial
+        // review 2026-11-22: it does NOT run eagerly here, on React 19). Without
+        // flushSync, `correction` below is read before the updater has
+        // actually run, so it's always null, and the orphan-keys delete after
+        // it never fires — the exact stale-server-row bug this whole fix
+        // exists to close, just for the orphan path specifically.
+        let correction = null;
+        flushSync(() => {
+          setKitchenTracking(p=>{
+            const o = (p&&typeof p==="object") ? {...p} : {};
+            correction = combinedBucketAfterPartialReset(p, partial.combinedId, touchedNames, partial.survivingEvIds);
+            o[partial.combinedId] = correction.row;
+            return o;
+          });
+        });
+        if (!correction || correction.orphanKeys.length === 0) {
+          setResetModal({ tone:"ok", icon:"check", title:T2("Reset complete"), body:doneLabel });
+          return;
+        }
+        // A dish no surviving function shares any more. The ordinary sync
+        // effect (App.jsx) uploads a SHARED dish's corrected/nulled fields
+        // fine (its row is still present locally, just changed) — but it
+        // only ever uploads keys present in the new state, never a key's
+        // outright disappearance, so an orphaned dish_key needs its own
+        // explicit delete here.
+        return mod.supabase.from('kitchen_tracking').delete().eq('ev_id', partial.combinedId).in('dish_key', correction.orphanKeys).then(function(r2){
+          if(r2.error){
+            console.error('KT combined-bucket cleanup error:', r2.error);
+            setResetModal({ tone:"danger", icon:"alert", title:T2("Reset failed"), body:r2.error.message });
+            return;
+          }
+          setResetModal({ tone:"ok", icon:"check", title:T2("Reset complete"), body:doneLabel });
+        });
       });
     }).catch(function(e){
       console.error('KT clear import error:', e);
@@ -2555,7 +2639,15 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
           // resetting one function would wipe the others' combined data too.
           const allSelected = evs.every(e=>resetSel.includes(e.id));
           const targets = allSelected ? [...ids, "__combined_"+resetPick.day] : ids;
-          runReset(targets, `${T2("Cleared")} ${ids.length} ${ids.length!==1?T2("functions"):T2("function")} — ${resetPick.day}.`);
+          // Partial reset: the combined bucket survives but can no longer be
+          // trusted for the reset functions' dishes (see runReset's own
+          // comment on `partial`) — give it the ids it needs to correct itself.
+          const partial = allSelected ? undefined : {
+            combinedId: "__combined_"+resetPick.day,
+            resetEvIds: ids,
+            survivingEvIds: evs.filter(e=>!resetSel.includes(e.id)).map(e=>e.id),
+          };
+          runReset(targets, `${T2("Cleared")} ${ids.length} ${ids.length!==1?T2("functions"):T2("function")} — ${resetPick.day}.`, partial);
         }}
         body={resetPick && (
           <div>
