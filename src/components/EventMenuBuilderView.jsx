@@ -11,7 +11,7 @@ import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, MENU_PACKAGE_NO_AUTO_OVERRIDES } from '../data/menuPackages.js';
 import { APP_SETTINGS } from '../data/appSettings.js';
 import { detectPackageDiet } from '../utils/helpers.js';
-import { RECIPE_DB, createCustomDishInLibrary, getAllDishes } from '../data/recipeData.js';
+import { RECIPE_DB, createCustomDishInLibrary, getAllDishes, flattenSectionsToDishes } from '../data/recipeData.js';
 import { resolveOverrideToCatalogueSectionId, buildOverrideResolver } from '../lib/catalogueSection.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS, pinnedDeptForDish } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
@@ -1153,6 +1153,29 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     return out;
   }, [templateInfo.name, sections, pkgVer]);
 
+  // The package's genuine baseline dish LIST — prefers templateInfo.dishes
+  // (MENU_PACKAGES[name], the flat `dishes[]` column), falling back to
+  // flattening the sections overlay (MENU_PACKAGE_SECTIONS[name]) when that
+  // flat column is empty. flattenSectionsToDishes is supposed to keep the
+  // two in sync on every package save, but a package managed purely through
+  // the Sections editor before that sync existed, or one whose flat column
+  // simply never got backfilled, can have a genuinely non-empty sections
+  // overlay while the flat column alone reads empty. Caught by a Fable
+  // audit ("false 'matches exactly' when the package has an empty dishes
+  // list"): menuDiffByDept used to gate its entire diff on
+  // templateInfo.dishes.length alone, so such a package always reported
+  // "Menu matches the package exactly" on the FP print regardless of what
+  // was actually selected — the diff never even ran, so nothing could ever
+  // show as added/removed/swapped. pkgVer forces a re-check after a package
+  // refresh (MENU_PACKAGE_SECTIONS is a mutated-in-place module object, same
+  // reasoning as pkgCatalogueSectionIds above).
+  var pkgBaselineDishList = useMemo(function(){
+    if (templateInfo.dishes && templateInfo.dishes.length > 0) return templateInfo.dishes;
+    var pkgSecs = templateInfo.name ? (MENU_PACKAGE_SECTIONS[templateInfo.name] || []) : [];
+    return flattenSectionsToDishes(pkgSecs);
+  // eslint-disable-next-line
+  }, [templateInfo.dishes, templateInfo.name, pkgVer]);
+
   // The package's genuine baseline dish set — same filtering menuDiffByDept's
   // own pkgSet below uses, hoisted so newSectionsByDept can share it: a
   // baseline dish the chef relocated into an ad hoc new section (via "Move
@@ -1160,9 +1183,9 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // when it was never actually added to the menu, just redisplayed under a
   // different heading.
   var pkgBaselineDishNames = useMemo(function(){
-    if (!templateInfo.dishes || templateInfo.dishes.length === 0) return new Set();
-    return new Set(templateInfo.dishes.filter(function(d){ return !noAutoSelectDishNames.has(d); }));
-  }, [templateInfo.dishes, noAutoSelectDishNames]);
+    if (!pkgBaselineDishList || pkgBaselineDishList.length === 0) return new Set();
+    return new Set(pkgBaselineDishList.filter(function(d){ return !noAutoSelectDishNames.has(d); }));
+  }, [pkgBaselineDishList, noAutoSelectDishNames]);
 
   // "Add section from library" tags EVERY dish in that catalogue section into
   // sectionOverrides up front (so whichever ones get toggled on land in the
@@ -1207,7 +1230,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // options), never as part of a silent baseline; an unpicked one is just
   // absent, not a "Deduction" — see noAutoSelectDishNames above.
   var menuDiffByDept = useMemo(function(){
-    if (!templateInfo.name || !templateInfo.dishes || templateInfo.dishes.length === 0) return {};
+    if (!templateInfo.name || pkgBaselineDishList.length === 0) return {};
     var pkgSecsAll = MENU_PACKAGE_SECTIONS[templateInfo.name] || [];
     var pkgSet = pkgBaselineDishNames;
     var selSet = selectedDishNames;
@@ -1227,7 +1250,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         (addedByDept[dept] = addedByDept[dept] || []).push(x.dish_name);
       }
     });
-    templateInfo.dishes.forEach(function(name){
+    pkgBaselineDishList.forEach(function(name){
       if (noAutoSelectDishNames.has(name)) return; // never part of the baseline to begin with
       if (!selSet.has(name)) {
         var dept = pinnedDeptForDish(name) || dishNameToPkgDept[name] || DEFAULT_DEPT;
@@ -1310,7 +1333,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     });
     return out;
   // eslint-disable-next-line
-  }, [dishItems, templateInfo.name, templateInfo.dishes, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta, noAutoSelectDishNames, pkgBaselineDishNames, newSectionsByDept]);
+  }, [dishItems, templateInfo.name, pkgBaselineDishList, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta, noAutoSelectDishNames, pkgBaselineDishNames, newSectionsByDept]);
 
   // ── Toggle dish: insert or delete in event_items, mirror kitchen dept to events.menu ──
   async function toggleDish(dishName) {
