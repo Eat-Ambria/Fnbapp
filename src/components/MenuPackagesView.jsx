@@ -15,6 +15,7 @@ import { Icon } from './KitchenUI.jsx';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import { getCateringStoreItemsCached } from '../lib/opsSupabase.js';
+import { overridesWithoutOldPackageLocalIds } from '../lib/menuSectionOverrides.js';
 import { MenuEditor } from './MenuEditor.jsx';
 import { EventMenuBuilderView } from './EventMenuBuilderView.jsx';
 import DishLibrary from './DishLibrary.jsx';
@@ -315,18 +316,32 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     // never actually saved.
     var prevMenu = selEv.menu;
     var prevMenuPackage = selEv.menuPackage;
+    var prevOverrides = selEv.menu_section_overrides;
+    // A dish tag pointing at the OLD package's own section/subsection id
+    // strands as a mislabeled "Extras" pill once the package switches, the
+    // same bug Dashboard.jsx's own package-switch path (syncEventItemsOnPackageChange)
+    // was fixed for — this is the SECOND place an event's package can
+    // change, via "Quick start from package" here, and needed the identical
+    // fix. See src/lib/menuSectionOverrides.js for why an id is only
+    // dropped when the NEW package doesn't also happen to share it.
+    var overridesResult = isPackageSwitch
+      ? overridesWithoutOldPackageLocalIds(prevOverrides, MENU_PACKAGE_SECTIONS[prevMenuPackage], MENU_PACKAGE_SECTIONS[delta.pkgName])
+      : null;
     function revertMenu() {
       setEvents(function(prev) {
         return (prev || []).map(function(e) {
           if (e.id !== eventId) return e;
-          return isPackageSwitch ? { ...e, menu: prevMenu, menuPackage: prevMenuPackage } : { ...e, menu: prevMenu };
+          return isPackageSwitch ? { ...e, menu: prevMenu, menuPackage: prevMenuPackage, menu_section_overrides: prevOverrides } : { ...e, menu: prevMenu };
         });
       });
     }
     setEvents(function(prev) {
       return (prev || []).map(function(e) {
         if (e.id !== eventId) return e;
-        return isPackageSwitch ? { ...e, menu: dishes, menuPackage: delta.pkgName } : { ...e, menu: dishes };
+        if (!isPackageSwitch) return { ...e, menu: dishes };
+        var next = { ...e, menu: dishes, menuPackage: delta.pkgName };
+        if (overridesResult && overridesResult.changed) next.menu_section_overrides = overridesResult.overrides;
+        return next;
       });
     });
     if (delta && delta.name) {

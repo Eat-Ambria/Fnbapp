@@ -11,13 +11,14 @@ import { ripple } from '../utils/ripple.js';
 import { useIsMobile } from '../utils/useIsMobile.js';
 import { MenuEditor } from './MenuEditor.jsx';
 import DishMappingModal from './DishMappingModal.jsx';
-import { MENU_PACKAGES, describeEventMenu } from '../data/menuPackages.js';
+import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, describeEventMenu } from '../data/menuPackages.js';
 import { findRecipeForDish, resolveDishStore, isDishNoSopMarked } from '../data/recipeData.js';
 import { isKitchenDishReady, kitchenTrackableDishes } from '../lib/kitchenDishKey.js';
 import { EVENT_VENUES } from '../data/staffData.js';
 import { logActivity } from './ActivityLog.jsx';
 import { supabase } from '../lib/supabase.js';
 import { filterAutoSeedable } from '../lib/menuItemOps.js';
+import { overridesWithoutOldPackageLocalIds } from '../lib/menuSectionOverrides.js';
 
 const FIELD_LABEL = {...type.label,fontSize:10.5,letterSpacing:.7,color:K.hdrMeta,marginBottom:5};
 
@@ -334,6 +335,25 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
       const {data:rows,error} = await supabase.from('event_items').select('dish_name').eq('event_id',eventId);
       if(error) throw error;
       const existing = rows||[];
+      // A per-event sectionOverrides tag can point at the OLD package's own
+      // (package-local) section/subsection id. If the NEW package doesn't
+      // also happen to share that id (package-local ids are NOT always
+      // unique across packages — see menuSectionOverrides.js's own header
+      // comment), the tag now resolves to nothing anywhere
+      // (resolveOverrideToCatalogueSectionId/effectiveSectionIdByDish find
+      // no match for it), so the dish silently strands as a mislabeled
+      // "Extras" pill with no indication why. A tag pointing at something
+      // else entirely — a real catalogue section/subsection id, or
+      // '__extras__' — is a deliberate, catalogue-level placement
+      // independent of which package is active, and must NOT be touched
+      // just because the package changed.
+      const {data:evRow,error:evErr} = await supabase.from('events').select('menu_section_overrides').eq('id',eventId).maybeSingle();
+      if(evErr) throw evErr;
+      const overridesResult = overridesWithoutOldPackageLocalIds((evRow && evRow.menu_section_overrides) || {}, MENU_PACKAGE_SECTIONS[prevPkgName], MENU_PACKAGE_SECTIONS[nextPkgName]);
+      if(overridesResult.changed){
+        const {error:ovErr} = await supabase.from('events').update({menu_section_overrides:overridesResult.overrides}).eq('id',eventId);
+        if(ovErr) throw ovErr;
+      }
       const oldDishes = new Set(MENU_PACKAGES[prevPkgName]||[]);
       const newSet = new Set(newDishes);
       const existingNames = new Set(existing.map(r=>r.dish_name));
