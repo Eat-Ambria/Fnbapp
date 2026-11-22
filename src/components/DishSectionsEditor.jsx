@@ -182,7 +182,13 @@ function DishSectionsEditor(props) {
     if (!supabase) return function(){};
     const ch = supabase.channel('sections_editor_' + Date.now())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_catalogue_sections' }, function(){ loadData(); })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dishes_master' }, function(){ loadData(); })
+      // '*', not just 'UPDATE' -- a dish added elsewhere (e.g. a custom dish
+      // created from the Build Menu/Items tab) INSERTs a new dishes_master
+      // row, which an UPDATE-only subscription never saw: this screen, left
+      // open, needed a manual reload before a dish created while it was open
+      // would ever appear. Matches the sibling dish_catalogue_sections
+      // subscription just above, which already correctly used '*'.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dishes_master' }, function(){ loadData(); })
       .subscribe();
     return function(){ supabase.removeChannel(ch); };
     /* eslint-disable-next-line */
