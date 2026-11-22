@@ -5,7 +5,8 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, MENU_PACKAGE_NO_AUTO_OVERRIDES, MENU_PACKAGE_ALT_GROUP_OVERRIDES, refreshMenuPackages, describeEventMenu } from '../data/menuPackages.js';
-import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster, resolveDishVeg } from '../data/recipeData.js';
+import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster, resolveDishVeg, createCustomDishInLibrary } from '../data/recipeData.js';
+import { buildCsvImportSections, resolveCsvCatalogueSectionId } from '../lib/csvImportSection.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { syncKitchenMenuMirror } from '../lib/eventItems.js';
 import { useIsMobile } from '../utils/useIsMobile.js';
@@ -1400,6 +1401,11 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     } finally {
       setCsvLoading(false);
     }
+    // Needed for resolveCsvCatalogueSectionId (dishes_master.section_id
+    // resolution) — a no-op if already cached. Never blocks the import flow:
+    // on failure a dish just imports with no section_id, same as before this
+    // was added.
+    try { await loadCatalogueForPicker(); } catch (e) { console.warn('Catalogue sections fetch failed — CSV-imported dishes will import without section_id:', e); }
   }
   function closeCsvImport() { if (!csvSaving) setCsvOpen(false); }
 
@@ -1482,29 +1488,30 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     setCsvSaving(true);
     var subStepIssues = {}; // dish name -> true, for rows whose Hindi/store-mapping sub-write failed
     try {
-      // 1. Group CSV rows into per-package section structures (preserves order)
-      var byPkg = {};
-      csvRows.forEach(function(r) {
-        if (!byPkg[r.package]) byPkg[r.package] = { sections: [], secIdx: {} };
-        var bag = byPkg[r.package];
-        if (bag.secIdx[r.section] == null) {
-          bag.secIdx[r.section] = bag.sections.length;
-          bag.sections.push({
-            id: 'sec_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6) + '_' + bag.sections.length,
-            name: r.section, sop_category: r.sop_category || '', dishes: []
-          });
-        }
-        var sec = bag.sections[bag.secIdx[r.section]];
-        if (r.sop_category && !sec.sop_category) sec.sop_category = r.sop_category;
-        if (sec.dishes.indexOf(r.dish) === -1) sec.dishes.push(r.dish);
+      // 1. Group CSV rows into per-package section structures (preserves
+      // order). A package already on file has its EXISTING sections passed
+      // in — buildCsvImportSections reuses a matching section's real id/
+      // sales_dept/subsections instead of minting fresh ones on every
+      // re-import (see csvImportSection.js's header for the bug this fixes).
+      var byPkg = buildCsvImportSections(csvRows, function(pkgName) {
+        return MENU_PACKAGES[pkgName] ? getSectionsForPackage(pkgName) : [];
       });
 
-      // 2. Ensure every dish exists in dishes_master (ignore 23505 unique conflict)
-      var allDishNames = {}; csvRows.forEach(function(r) { allDishNames[r.dish] = true; });
-      for (var name in allDishNames) {
-        var ins = await supabase.from('dishes_master').insert({ dish_name: name }).select();
-        if (ins.error && ins.error.code !== '23505') { console.warn('dishes_master insert', name, ins.error); subStepIssues[name] = true; }
-        upsertDishMaster(name, { is_active: true });
+      // 2. Ensure every dish exists in dishes_master, via the same shared
+      // helper every other "add a new dish" entry point uses — this also
+      // resolves and writes a real section_id from the CSV's own section/
+      // sop_category text when it matches exactly one catalogue section
+      // (never guessed; see csvImportSection.js). catId is intentionally
+      // left null: CSV import never created a dish_categories tag or an
+      // empty recipe stub before this fix either, deferring that to a
+      // later manual "map in Dish library" step, same as a 'sop' row with
+      // no SOP recipe already does.
+      var firstRowForDish = {};
+      csvRows.forEach(function(r) { if (!firstRowForDish[r.dish]) firstRowForDish[r.dish] = r; });
+      for (var name in firstRowForDish) {
+        var catalogueSectionId = resolveCsvCatalogueSectionId(firstRowForDish[name], catalogueSections);
+        var lib = await createCustomDishInLibrary(supabase, name, null, catalogueSectionId);
+        if (lib.masterError) subStepIssues[name] = true;
       }
 
       // 3. Hindi mappings (batch upsert)
@@ -1547,19 +1554,19 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
 
       // 5. Upsert each package (menu_packages) — dishes[] + sections
       for (var pkgName in byPkg) {
-        var pkg = byPkg[pkgName];
-        var flatDishes = flattenSectionsToDishes(pkg.sections);
+        var pkgSections = byPkg[pkgName];
+        var flatDishes = flattenSectionsToDishes(pkgSections);
         if (MENU_PACKAGES[pkgName]) {
           var uRes = await supabase.from('menu_packages')
-            .update({ dishes: flatDishes, sections: pkg.sections, is_active: true })
+            .update({ dishes: flatDishes, sections: pkgSections, is_active: true })
             .eq('name', pkgName);
           if (uRes.error) throw uRes.error;
         } else {
           var iRes = await supabase.from('menu_packages')
-            .upsert({ name: pkgName, dishes: flatDishes, sections: pkg.sections, is_active: true }, { onConflict: 'name' });
+            .upsert({ name: pkgName, dishes: flatDishes, sections: pkgSections, is_active: true }, { onConflict: 'name' });
           if (iRes.error) throw iRes.error;
         }
-        setPackageSections(pkgName, pkg.sections, flatDishes);
+        setPackageSections(pkgName, pkgSections, flatDishes);
       }
 
       clearMenuPackageCaches();
