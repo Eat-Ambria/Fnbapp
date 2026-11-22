@@ -624,7 +624,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                             exists, not just that some extra dishes got added somewhere. */}
                         {(diff.newSections || []).map(function(sec){
                           return (
-                            <div key={sec.name}>
+                            <div key={sec.id || sec.name}>
                               <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2("New")} {sec.name})</span></SubHead>
                               {sortedByVeg(sec.dishes, dishSectionOrder).map(function(n){ return <Bullet key={'n' + n} dot={false} changed={dishChanged(n)}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
                             </div>
@@ -639,7 +639,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                           // one of its dishes was still selected at ack time.
                           var changed = ackSnap && sec.dishes.some(function(dn){ return ackSnapDishes.has(dn); });
                           return (
-                            <div key={'rs-' + sec.name}>
+                            <div key={'rs-' + (sec.id || sec.name)}>
                               <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic", color: "#B3281F", ...(changed ? CHANGED_HILITE : {}) }}>({T2("Section removed")}: {sec.name} — {sec.dishes.length} {T2("dishes")})</span></SubHead>
                             </div>
                           );

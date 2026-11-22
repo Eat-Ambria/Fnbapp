@@ -1187,7 +1187,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       // here than the Items tab/kitchen mirror actually place it in.
       var dept = effectiveDeptForDish(dishName);
       if (!out[dept]) out[dept] = {};
-      if (!out[dept][targetId]) out[dept][targetId] = { name: sec.name, dishes: [] };
+      if (!out[dept][targetId]) out[dept][targetId] = { id: targetId, name: sec.name, dishes: [] };
       out[dept][targetId].dishes.push(dishName);
     });
     return out;
@@ -1269,7 +1269,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         // bullet it would otherwise take the place of.
         if (names.length <= 1) return;
         if (!names.every(function(n){ return removedSet[n]; })) return;
-        removedSections.push({ name: sec.name, dishes: names });
+        removedSections.push({ id: sec.id, name: sec.name, dishes: names });
         names.forEach(function(n){ coveredByRemovedSection[n] = true; });
       });
       if (removedSections.length > 0) removed = removed.filter(function(n){ return !coveredByRemovedSection[n]; });
