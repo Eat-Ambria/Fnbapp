@@ -722,13 +722,15 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // there, not here). Surfaced to sales as a "Chef Ack" column in
   // BookedFunctionsView and on the public FP Hub's calendar cards (both
   // already read event_function_plans the same way "Made By" does).
-  // `snapshot` -- {fp: {key: diffVal}, dishNames: [...]} -- is built by
-  // FunctionPlanPrintView from exactly what it just rendered, so a later
-  // print can diff "now" against "what the chef actually saw" and highlight
-  // anything that changed since, whether that's a menu dish, an F&B/banquet
-  // info line, a timing, anything printed. Re-acknowledging (the button
-  // reappears once something changes) overwrites the snapshot with the
-  // current one, clearing every highlight the chef has now reviewed.
+  // `snapshot` -- {fp: {key: diffVal}, dishNames: [...], dishPlacement: {name: "dept|section"}} --
+  // is built by FunctionPlanPrintView from exactly what it just rendered, so
+  // a later print can diff "now" against "what the chef actually saw" and
+  // highlight anything that changed since, whether that's a menu dish being
+  // added/removed, a dish RE-TAGGED to a different dept/section (same dish
+  // set, different placement — dishPlacement is what catches this), an
+  // F&B/banquet info line, a timing, anything printed. Re-acknowledging (the
+  // button reappears once something changes) overwrites the snapshot with
+  // the current one, clearing every highlight the chef has now reviewed.
   async function ackFpChef(snapshot) {
     if (!fp) return;
     var who = (currentUser && currentUser.name) || null;
@@ -1528,6 +1530,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         itemsByDept={itemsByDept}
         dishSectionOrder={dishSectionOrder}
         dishSectionName={dishSectionName}
+        dishSectionId={effectiveSectionIdByDish}
         packageName={templateInfo.name}
         menuDiffByDept={menuDiffByDept}
         configsByDept={printConfigs}

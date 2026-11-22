@@ -217,7 +217,7 @@ function Bullet({ children, dot, changed }) {
   </div>;
 }
 
-export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder, dishSectionName, packageName, menuDiffByDept, configsByDept, currentUser, onAckChef, onClose, T2 }) {
+export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder, dishSectionName, dishSectionId, packageName, menuDiffByDept, configsByDept, currentUser, onAckChef, onClose, T2 }) {
   var [acking, setAcking] = useState(false);
   function handleAck() {
     if (!onAckChef || acking) return;
@@ -226,7 +226,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
     // render, in lockstep with the bullets/menu they describe -- by the
     // time this actually runs (a click, always after render), they hold
     // exactly what's on screen right now.
-    var snapshot = { fp: fpSnapshotMap, dishNames: Array.from(currentDishNames) };
+    var snapshot = { fp: fpSnapshotMap, dishNames: Array.from(currentDishNames), dishPlacement: currentDishPlacement };
     Promise.resolve(onAckChef(snapshot)).finally(function(){ setAcking(false); });
   }
   // Browsers suggest document.title as the filename for "Print → Save as PDF",
@@ -270,11 +270,40 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
   var ackSnap = (fp && fp.chef_ack_by && fp.chef_ack_snapshot) ? fp.chef_ack_snapshot : null;
   var ackSnapFp = (ackSnap && ackSnap.fp) || {};
   var ackSnapDishes = new Set((ackSnap && ackSnap.dishNames) || []);
+  // Caught by a Fable audit ("ack snapshot ignores section tags"): the
+  // snapshot used to record only WHICH dishes were on the menu at ack time,
+  // not WHERE each one printed (its dept + catalogue-section id). A
+  // dish re-tagged to a different section/dept since ack — same name, same
+  // overall dish set, just moved on the printed sheet — was invisible to
+  // both dishChanged (no per-dish highlight) and hasChangesSinceAck (no
+  // "Changed since" banner), even though the sheet the chef is looking at
+  // now genuinely differs from what they acknowledged. ackSnapPlacement is
+  // only present on a snapshot taken AFTER this fix (an older ack's snapshot
+  // has no `dishPlacement` field at all) — `name in ackSnapPlacement` is
+  // false for every name on an old snapshot, so this never produces a false
+  // positive against pre-existing acks; it just doesn't retroactively catch
+  // re-tagging they predate, same as any other new diff dimension would.
+  var ackSnapPlacement = (ackSnap && ackSnap.dishPlacement) || {};
   var currentDishNames = new Set();
-  Object.keys(itemsByDept || {}).forEach(function(d){ (itemsByDept[d] || []).forEach(function(n){ currentDishNames.add(n); }); });
+  var currentDishPlacement = {};
+  Object.keys(itemsByDept || {}).forEach(function(d){ (itemsByDept[d] || []).forEach(function(n){
+    currentDishNames.add(n);
+    // Keyed by the section's own id (dishSectionId, falling back to its
+    // display NAME only if the id prop is somehow missing), not the display
+    // name alone — two distinct catalogue sections can share a name (the
+    // Sections editor doesn't enforce uniqueness), and a dish re-tagged
+    // between two same-named sections would otherwise produce an identical
+    // signature and silently miss the re-tag this check exists to catch.
+    var sid = dishSectionId && (n in dishSectionId) ? dishSectionId[n] : undefined;
+    currentDishPlacement[n] = d + '|' + (sid !== undefined ? String(sid) : ((dishSectionName && dishSectionName[n]) || 'Extras'));
+  }); });
   function dishChanged(name) {
     if (!ackSnap) return false;
-    return ackSnapDishes.has(name) !== currentDishNames.has(name);
+    if (ackSnapDishes.has(name) !== currentDishNames.has(name)) return true;
+    if (currentDishNames.has(name) && (name in ackSnapPlacement)) {
+      return ackSnapPlacement[name] !== currentDishPlacement[name];
+    }
+    return false;
   }
   var fpSnapshotMap = {};
   function fieldChanged(key, diffVal) {
@@ -420,8 +449,15 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
   // by overwriting the snapshot with the current one).
   var hasChangesSinceAck = false;
   if (ackSnap) {
+    // Same-size, same-names is not the same as same-PLACEMENT — a dish
+    // re-tagged to a different section/dept since ack keeps the overall
+    // dish set identical, so this must also check each dish's placement,
+    // not just that the set of names matches (see dishChanged's own
+    // comment above for why ackSnapPlacement is safe against old snapshots).
     var dishesEqual = ackSnapDishes.size === currentDishNames.size &&
-      Array.from(currentDishNames).every(function(dn){ return ackSnapDishes.has(dn); });
+      Array.from(currentDishNames).every(function(dn){
+        return ackSnapDishes.has(dn) && (!(dn in ackSnapPlacement) || ackSnapPlacement[dn] === currentDishPlacement[dn]);
+      });
     if (!dishesEqual) hasChangesSinceAck = true;
     else {
       var allKeys = Object.keys(fpSnapshotMap).concat(Object.keys(ackSnapFp));
