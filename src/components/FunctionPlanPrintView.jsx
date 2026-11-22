@@ -668,7 +668,17 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                         })}
                         {/* A whole package-default section with every one of its
                             dishes gone — one line, not a pile of individual
-                            "− dish" bullets. */}
+                            "− dish" bullets. Caught by a Fable audit ("the
+                            removed-section highlight is weak"): this used to
+                            set fontWeight: 400 on the span, DOWN-weighting it
+                            relative to SubHead's own bold (700) dept heading
+                            right next to it — the one thing on the sheet most
+                            needing emphasis (a whole section, several dishes,
+                            gone) read as LESS prominent than the heading
+                            around it, and far less prominent than an ordinary
+                            per-dish "− dish" removal bullet elsewhere on this
+                            same sheet (bold, line 650/658). Bold now matches
+                            that same visual weight. */}
                         {(diff.removedSections || []).map(function(sec){
                           // Whole-section removals have no per-dish bullet to
                           // flag individually -- new since ack when at least
@@ -676,7 +686,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                           var changed = ackSnap && sec.dishes.some(function(dn){ return ackSnapDishes.has(dn); });
                           return (
                             <div key={'rs-' + (sec.id || sec.name)}>
-                              <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic", color: "#B3281F", ...(changed ? CHANGED_HILITE : {}) }}>({T2("Section removed")}: {sec.name} — {sec.dishes.length} {T2("dishes")})</span></SubHead>
+                              <SubHead>{d.name} <span style={{ fontWeight: 700, fontStyle: "italic", color: "#B3281F", ...(changed ? CHANGED_HILITE : {}) }}>({T2("Section removed")}: {sec.name} — {sec.dishes.length} {T2("dishes")})</span></SubHead>
                             </div>
                           );
                         })}
