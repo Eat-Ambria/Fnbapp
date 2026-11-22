@@ -1,6 +1,8 @@
 import { getCatIdForDish, isFruitSelectionDish } from '../data/recipeData.js';
 import { pinnedDeptForDish } from '../data/salesConfig.js';
 import { mergeDishState, DISH_STEP_MAPS } from '../utils/helpers.js';
+import { MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
+import { resolveDeptForOverrideTarget } from './sectionDept.js';
 
 // Ambria FnB — the one place that knows kitchen_tracking's per-dish key shape.
 //
@@ -38,15 +40,15 @@ export function isKitchenDishReady(kt, evId, dishName) {
 // bev, see pinnedDeptForDish) dropped — exactly EventDayTab.jsx's own
 // original `menuArr`, moved here so EventDayTab.jsx's `menuArr` can delegate
 // to it instead of keeping its own copy. Deliberately does NOT also drop
-// Beverages-category/fruit-selection dishes — EventDayTab.jsx's `byDish`
-// loop applies that filter itself, AFTER indexing this array (its `idx`
-// feeds a legacy per-position kitchen_tracking fallback for rows written
-// before the name-keyed `dk()` existed — see `ds()` — so the two filters
-// must stay in this exact order and NOT be pre-merged, or an old legacy row
-// could resolve to the wrong dish once a Beverages/fruit dish ahead of it in
-// the menu disappears from the array and shifts every later index down).
-// Use kitchenTrackableDishes() below for anything that isn't EventDayTab.jsx
-// itself.
+// dishes isExcludedFromKitchenTracking() (below) would exclude —
+// EventDayTab.jsx's `byDish` loop applies that filter itself, AFTER
+// indexing this array (its `idx` feeds a legacy per-position
+// kitchen_tracking fallback for rows written before the name-keyed `dk()`
+// existed — see `ds()` — so the two filters must stay in this exact order
+// and NOT be pre-merged, or an old legacy row could resolve to the wrong
+// dish once an excluded dish ahead of it in the menu disappears from the
+// array and shifts every later index down). Use kitchenTrackableDishes()
+// below for anything that isn't EventDayTab.jsx itself.
 export function kitchenMenuArr(ev) {
   if (!ev || ev.external_caterer) return [];
   const m = ev.menu;
@@ -63,12 +65,134 @@ export function kitchenMenuArr(ev) {
   return arr;
 }
 
+// Is `name` a dish Kitchen never tracks on `ev` — the one correct condition
+// every "which dishes does Kitchen cook/sign off" reader should gate on.
+//
+// A dish has TWO independent classifications that can disagree: its real
+// DEPARTMENT (kit/bev/frt/..., resolved via the precedence chain in
+// src/lib/eventItems.js's resolveDeptForDish/buildEventDeptContext — the
+// mechanism DeptView.jsx's Beverages/Fruits Ops screens actually use), and
+// its SOP/RECIPE category (RECIPE_DB.cats, via getCatIdForDish/
+// getSectionForDish — which SOP binder its cooking instructions live
+// under, nothing to do with which department serves it). A dish can be
+// dept-routed to 'kit' while its SOP category happens to be "beverages"
+// (a kitchen-prepared drink base, or just a mis-filed SOP tag) — checking
+// the SOP category here instead of the real department wrongly excludes
+// such a dish from Kitchen, and since it's genuinely NOT a bev-dept dish,
+// Beverages Ops (correctly, via the real department) doesn't show it
+// either: the dish vanishes from every screen, with nothing to explain why.
+//
+// `syncAllKitchenMenuMirrors` (eventItems.js) writes `events.menu`
+// pre-filtered by the REAL department (dropping bev/frt) once an event's
+// Items tab has ever been opened (`event_items_initialized`) — but caught
+// by adversarial review: that is NOT a reliable invariant to trust blindly.
+// Several paths set `event_items_initialized:true` while leaving
+// `events.menu` as the raw, every-department package list a while longer
+// (a "Quick start from package"/package-switch write that hasn't been
+// re-mirrored yet; an event whose real kit-dept menu happens to be empty,
+// where the UI's own package-list fallback — see App.jsx — keeps re-
+// appearing in `ev.menu` even though the mirror sync keeps trying to
+// write `[]`). Blindly trusting `event_items_initialized` in those states
+// would let a genuine bev/frt dish leak into Kitchen tracking — trading
+// the original bug for a real regression in the other direction.
+//
+// So this ALWAYS tries to resolve the dish's REAL department first,
+// synchronously, from data that's already in memory (no async fetch): a
+// name-pinned dept (ice cream/tea/coffee → bev), the package's own
+// section/subsection `sales_dept` for this dish, and a per-event
+// placement-tag override. This mirrors resolveDeptForDish's own precedence
+// (eventItems.js, and the equivalent in useMenuItemGrouping.js/
+// sectionDept.js) MINUS the two layers that genuinely need an async fetch
+// (a catalogue section's own `sales_dept`, and `sales_items_meta`) — not
+// available to a pure function given only a dish name and an event object.
+// Only when NONE of these synchronous signals say anything (truly no
+// information either way) does it fall back to: trust the mirror if this
+// event is initialized, else fall back to the legacy SOP-category
+// heuristic as a last resort.
+//
+// PRECEDENCE MATTERS, caught by adversarial review: a per-event override is
+// checked BEFORE the package's own placement, matching resolveDeptForDish
+// exactly — an override exists specifically to OVERRIDE the package's
+// default placement, so checking the package first (as an earlier version
+// of this function did) could (a) wrongly exclude a dish a staff member
+// deliberately re-tagged OUT of a bev/frt package section and into kit —
+// the exact "vanishes from every screen" bug this whole fix exists to
+// close, just reached a different way — or (b) wrongly KEEP a dish
+// deliberately re-tagged INTO bev/frt from a kit package section, since
+// the package lookup would already have returned before the override was
+// ever consulted.
+// Returns a TRI-STATE, not a boolean: `true` (definitely bev/frt, exclude),
+// `false` (definitely kit or another non-bev/frt dept, keep), or `null`
+// ("no synchronous signal either way" — the caller must fall back to the
+// mirror/SOP-category heuristic, NOT treat this as "keep"). Caught by a
+// THIRD adversarial review round: an earlier boolean-returning version
+// conflated "definitively resolved to kit" with "no signal at all" (both
+// `false`), so isExcludedFromKitchenTracking's own fallback chain could
+// still run the legacy SOP-category heuristic on top of an ALREADY
+// definitive "kit" answer on an uninitialized event — e.g. a dish placed in
+// a sales_dept:'kit' package section (or override) whose RECIPE_DB SOP
+// category happens to be "beverages" would be wrongly excluded by that
+// heuristic, exactly the double-filing bug this whole fix exists to close,
+// just reached via the fallback path instead of the mirror-trusting one.
+function realDeptExcludesDish(name, ev) {
+  if (pinnedDeptForDish(name)) return true; // always resolves to 'bev' today — any pin is non-kit
+  if (!ev) return null;
+  const pkgName = ev.menuPackage || ev.menu_package;
+  const pkgSecs = pkgName ? (MENU_PACKAGE_SECTIONS[pkgName] || []) : [];
+  const overrides = ev.menu_section_overrides || {};
+  const targetId = overrides[name];
+  if (targetId) {
+    const dept = resolveDeptForOverrideTarget(targetId, pkgSecs, null);
+    // A target that resolves to nothing synchronously (most often a real
+    // catalogue section id, which needs an async fetch this pure function
+    // doesn't have) is genuinely ambiguous — treated as "no signal from
+    // this override", NOT as "fall back to the package's own placement
+    // instead". An override exists to override the package placement, so
+    // silently falling back to the package's dept here could get this
+    // exactly backwards for a dish deliberately re-tagged away from it.
+    if (dept) return dept === 'bev' || dept === 'frt';
+  }
+  // Last match wins when the same dish name is (incorrectly) listed in more
+  // than one section/subsection — matches buildEventDeptContext's own
+  // forEach-overwrite precedence (eventItems.js), not "first match wins".
+  // Entries are defensively guarded (`sec &&`/`sub &&`) the same way
+  // resolveDeptForOverrideTarget guards its own array scan, even though
+  // MENU_PACKAGE_SECTIONS is static in-memory data that shouldn't normally
+  // contain a falsy entry.
+  let lastMatch = null;
+  for (let i = 0; i < pkgSecs.length; i++) {
+    const sec = pkgSecs[i];
+    if (!sec) continue;
+    const secDept = sec.sales_dept || 'kit';
+    if ((sec.dishes || []).indexOf(name) !== -1) lastMatch = secDept;
+    const subs = sec.subsections || [];
+    for (let j = 0; j < subs.length; j++) {
+      const sub = subs[j];
+      if (!sub) continue;
+      if ((sub.dishes || []).indexOf(name) !== -1) lastMatch = sub.sales_dept || secDept;
+    }
+  }
+  if (lastMatch) return lastMatch === 'bev' || lastMatch === 'frt';
+  return null; // no synchronous signal either way
+}
+
+// isFruitSelectionDish (a "pick N of these fruits" counter placeholder,
+// detected by NAME PATTERN, not any category/department tag) is excluded
+// unconditionally — it was never meant to reach Kitchen at all.
+export function isExcludedFromKitchenTracking(name, ev) {
+  if (isFruitSelectionDish(name)) return true;
+  const realDept = realDeptExcludesDish(name, ev);
+  if (realDept !== null) return realDept; // definitive true/false — never fall through past a real answer
+  if (ev && ev.event_items_initialized) return false;
+  return getCatIdForDish(name) === 'beverages';
+}
+
 // The dishes of `ev` that Kitchen's own "Final Cooking" sign-off screen
-// (EventDayTab.jsx's menuArr + its byDish loop's own Beverages/fruit-
-// selection filter) can EVER mark `ready` — the one correct denominator for
-// every "how many dishes are ready" reader OUTSIDE EventDayTab.jsx itself
-// (EventDayTab.jsx keeps applying this same beverages/fruit filter inline,
-// see kitchenMenuArr's own comment on why it can't be pre-merged there).
+// (EventDayTab.jsx's menuArr + its byDish loop's own exclusion check) can
+// EVER mark `ready` — the one correct denominator for every "how many
+// dishes are ready" reader OUTSIDE EventDayTab.jsx itself (EventDayTab.jsx
+// keeps applying this same exclusion check inline, see kitchenMenuArr's own
+// comment on why it can't be pre-merged there).
 //
 // Found 2026-11-22 via adversarial review: every "ready" reader before this
 // used its own simpler Beverages-only or Beverages+Fruits-only filter, so
@@ -77,7 +201,7 @@ export function kitchenMenuArr(ev) {
 // kitchen had actually finished — the fixed key-shape readers (above) were
 // correct but still counted against the wrong total.
 export function kitchenTrackableDishes(ev) {
-  return kitchenMenuArr(ev).filter(n => getCatIdForDish(n) !== 'beverages' && !isFruitSelectionDish(n));
+  return kitchenMenuArr(ev).filter(n => !isExcludedFromKitchenTracking(n, ev));
 }
 
 // Rebuilds `freshEntry` (the fresh fold of whatever CURRENTLY survives for a

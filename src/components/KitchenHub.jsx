@@ -15,8 +15,8 @@ import { fetchAllRows, dbInsert } from '../lib/db.js';
 import { supabase } from '../lib/supabase.js';
 import { opsSupabase } from '../lib/opsSupabase.js';
 import { MENU_PACKAGES, MENU_PACKAGE_NAMES, describeEventMenu } from '../data/menuPackages.js';
-import { getSectionForDish, getCatIdForDish, getCatForDish, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, isDishNoSopMarked, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishStore } from '../data/recipeData.js';
-import { kitchenDishKey, dishesTrackedByEvents, combinedBucketAfterPartialReset } from '../lib/kitchenDishKey.js';
+import { getSectionForDish, getCatIdForDish, getCatForDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, findRecipeForDish, isDishNoSopMarked, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishStore } from '../data/recipeData.js';
+import { kitchenDishKey, dishesTrackedByEvents, combinedBucketAfterPartialReset, isExcludedFromKitchenTracking } from '../lib/kitchenDishKey.js';
 import { Avatar, Card, Btn, Chip, STag, SelfieCapture, SectionHeader } from './SharedUI.jsx';
 import { K, type, tone } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
@@ -2193,7 +2193,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
     const byDishD1Scan = {};
     d1FilteredEvs.forEach(ev=>{
       menuArr(ev).forEach((name,idx)=>{
-        if(getSectionForDish(name)==="Beverages" || isFruitSelectionDish(name)) return;
+        if(isExcludedFromKitchenTracking(name, ev)) return;
         if(allowedCatIds && !allowedCatIds.includes(getCatIdForDish(name))) return;
         if(!byDishD1Scan[name]) byDishD1Scan[name]={fEvId:ev.id,fIdx:idx,fns:[]};
         byDishD1Scan[name].fns.push({evId:ev.id,idx});
@@ -3702,7 +3702,7 @@ function KitchenHub({ events, setEvents, kitchenTracking, setKitchenTracking, la
           const sp=ev.special||"";
           const isSpecial=/no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
           menuArr(ev).forEach((name,idx)=>{
-            if(getSectionForDish(name)==="Beverages"||isFruitSelectionDish(name)) return;
+            if(isExcludedFromKitchenTracking(name, ev)) return;
             if(allowedCatIds && !allowedCatIds.includes(getCatIdForDish(name))) return;
             if(!byDishD1[name])byDishD1[name]={sec:getSectionForDish(name),catId:getCatIdForDish(name),totalPax:0,fns:[],fEvId:ev.id,fIdx:idx,specials:[]};
             byDishD1[name].totalPax+=ev.pax||0;

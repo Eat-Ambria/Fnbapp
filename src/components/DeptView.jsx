@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { C, ALL_DEPARTMENTS, SECTION_META, AMBRIA_VENUES, VEHICLES, COLD_ITEMS } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, TODAY_LABEL, safeArr, safeNum, safePct, safeObj, TOMORROW, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, storeItemKey, markAllCollected, mergeDishState, stepDone } from '../utils/helpers.js';
-import { kitchenDishState, isKitchenDishReady, kitchenTrackableDishes } from '../lib/kitchenDishKey.js';
+import { kitchenDishState, isKitchenDishReady, kitchenTrackableDishes, isExcludedFromKitchenTracking } from '../lib/kitchenDishKey.js';
 import { GROOMING_CHECKS } from '../data/staffData.js';
 import { MENU_PACKAGES, describeEventMenu } from '../data/menuPackages.js';
 import { Avatar, DonutChart, Card, Btn, Chip, STag } from './SharedUI.jsx';
@@ -599,9 +599,9 @@ function DeptView({events, kitchenTracking, setKitchenTracking, lang="en", setLa
           {todayEvs.map(ev=>(
             <Card key={ev.id} style={{marginBottom:10,padding:"12px 14px"}}>
               <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:4}}>{ev.guest} — {describeEventMenu(ev)}</div>
-              <div style={{fontSize:12,color:C.muted,marginBottom:8}}>{ev.time} · {ev.pax} {T2("pax")} · {(ev.menu||[]).filter(d=>sectionForDish(d)!=="Beverages"&&sectionForDish(d)!=="Fruits").length} {T2("dishes")}</div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:8}}>{ev.time} · {ev.pax} {T2("pax")} · {(ev.menu||[]).filter(d=>!isExcludedFromKitchenTracking(d, ev)).length} {T2("dishes")}</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                {(ev.menu||[]).filter(d=>sectionForDish(d)!=="Beverages"&&sectionForDish(d)!=="Fruits").map((d,i)=>{const sec=sectionForDish(d);const m=SECTION_META[sec]||{color:C.muted};return <span key={i} style={{fontSize:10,padding:"5px 10px",borderRadius:8,background:m.color+"10",border:`1px solid ${m.color}25`,color:m.color}}>{d}</span>;})}
+                {(ev.menu||[]).filter(d=>!isExcludedFromKitchenTracking(d, ev)).map((d,i)=>{const sec=sectionForDish(d);const m=SECTION_META[sec]||{color:C.muted};return <span key={i} style={{fontSize:10,padding:"5px 10px",borderRadius:8,background:m.color+"10",border:`1px solid ${m.color}25`,color:m.color}}>{d}</span>;})}
               </div>
             </Card>
           ))}

@@ -4,8 +4,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { TODAY, safeArr, safePct, localDateStr, fmtStamp, fmtQty, unitFamily, unitToBase, categorizeIngredient, INGR_CATEGORY_ORDER, mergeDishState, storeItemKey, markAllCollected, stepDone } from '../utils/helpers.js';
-import { kitchenDishKey, kitchenMenuArr } from '../lib/kitchenDishKey.js';
-import { getCatIdForDish, getCatForDish, isFruitSelectionDish, RECIPE_DB, getFullSteps, getStepsForDish, fmtT, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, findRecipeForDish, dishLabel, getDishImageUrl } from '../data/recipeData.js';
+import { kitchenDishKey, kitchenMenuArr, isExcludedFromKitchenTracking } from '../lib/kitchenDishKey.js';
+import { getCatIdForDish, getCatForDish, RECIPE_DB, getFullSteps, getStepsForDish, fmtT, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, findRecipeForDish, dishLabel, getDishImageUrl } from '../data/recipeData.js';
 import { K, type, tone } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
 import { catMeta, ingredientEmoji } from '../data/ingredientIcons.js';
@@ -503,7 +503,7 @@ function EventDayTab({
     const isSpecial = /no onion|no garlic|jain|no egg|no root|nut.free|halal|kosher|lactose|gluten/i.test(sp);
     menuArr(ev).forEach((name, idx) => {
       const dishCatId = getCatIdForDish(name);
-      if (dishCatId === "beverages" || isFruitSelectionDish(name)) return;
+      if (isExcludedFromKitchenTracking(name, ev)) return;
       if (allowedCatIds && !allowedCatIds.includes(dishCatId)) return;
       if (!byDish[name]) byDish[name] = { catId: dishCatId, totalPax: 0, fns: [], fEvId: ev.id, fIdx: idx, specials: [] };
       byDish[name].totalPax += ev.pax || 0;

@@ -3,8 +3,9 @@
 // across Dashboard.jsx/DeptView.jsx, each using a different wrong key shape).
 
 import { describe, it, expect } from 'vitest';
-import { kitchenDishKey, kitchenDishState, isKitchenDishReady, kitchenTrackableDishes, dishesTrackedByEvents, combinedBucketAfterPartialReset } from './kitchenDishKey.js';
+import { kitchenDishKey, kitchenDishState, isKitchenDishReady, kitchenTrackableDishes, isExcludedFromKitchenTracking, kitchenMenuArr, dishesTrackedByEvents, combinedBucketAfterPartialReset } from './kitchenDishKey.js';
 import { RECIPE_DB } from '../data/recipeData.js';
+import { MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 
 // getCatIdForDish falls back to matching a dish name against RECIPE_DB's own
 // recipes — register one fixture into the (already-present-by-default,
@@ -14,7 +15,64 @@ import { RECIPE_DB } from '../data/recipeData.js';
 // all, so it can't ALSO be caught by pinnedDeptForDish or by
 // guessSectionForDish's own word-based guessing (which getCatIdForDish falls
 // back to) — isolating this exclusion path from the other two.
-RECIPE_DB.recipes.beverages.push({ n: 'Test Fixture Zzyx Special __kt_bev', sub: '', steps: [] });
+const BEV_DISH = 'Test Fixture Zzyx Special __kt_bev';
+// "Ice cream" is in pinnedDeptForDish's own regex, but guessSectionForDish
+// (which getCatIdForDish falls back to) classifies it as Sweets, not
+// Beverages — isolating the pinnedDeptForDish exclusion path (handled in
+// kitchenMenuArr, upstream of isExcludedFromKitchenTracking) from the
+// Beverages-SOP-category one.
+const PINNED_DISH = 'Vanilla Ice Cream';
+const FRUIT_DISH = '5 Imported Fruits'; // isFruitSelectionDish is pure regex parsing, no fixture needed
+const NORMAL_DISH = 'Paneer Tikka';
+RECIPE_DB.recipes.beverages.push({ n: BEV_DISH, sub: '', steps: [] });
+
+// A test-only package, registered into the real MENU_PACKAGE_SECTIONS object
+// (same pattern as the RECIPE_DB fixture above) — exercises
+// isExcludedFromKitchenTracking's SYNCHRONOUS real-department check
+// (realDeptExcludesDish), the thing that keeps a genuinely bev/frt-dept
+// dish excluded EVEN ON AN "INITIALIZED" EVENT WHOSE MENU HASN'T ACTUALLY
+// BEEN RE-MIRRORED YET — caught by adversarial review: blindly trusting
+// event_items_initialized alone was a real regression risk (a package
+// quick-start, a package switch, or an event whose real kit menu is empty
+// can all leave events.menu holding the raw, every-department package list
+// for a while, with event_items_initialized already true).
+const PKG_NAME = '__kt_test_pkg__';
+const PKG_BEV_DISH = 'Test Fixture Package-Section Bev Dish';
+const PKG_FRT_SUBSECTION_DISH = 'Test Fixture Package-Subsection Frt Dish';
+const PKG_KIT_DISH = 'Test Fixture Package-Section Kit Dish';
+const PKG_ADHOC_DISH = 'Test Fixture Ad-hoc Override Dish'; // not in any section's own dish list — only reachable via an override tag
+// A subsection with NO own sales_dept, under a bev-dept PARENT section —
+// exercises the `sub.sales_dept || secDept` inheritance fallback itself
+// (the existing PKG_FRT_SUBSECTION_DISH fixture has its own explicit
+// sales_dept, so that branch was never actually exercised before).
+const PKG_BEV_INHERIT_SUBSECTION_DISH = 'Test Fixture Package-Subsection Inherited Bev Dish';
+MENU_PACKAGE_SECTIONS[PKG_NAME] = [
+  { id: 'sec_kt_test_kit', name: 'Rice Factory', sales_dept: 'kit', dishes: [PKG_KIT_DISH] },
+  { id: 'sec_kt_test_bev', name: 'Beverages', sales_dept: 'bev', dishes: [PKG_BEV_DISH], subsections: [
+    { id: 'sub_kt_test_bev_inherit', name: 'Mocktail Counter', dishes: [PKG_BEV_INHERIT_SUBSECTION_DISH] },
+  ] },
+  { id: 'sec_kt_test_main', name: 'Main Course', sales_dept: 'kit', dishes: [], subsections: [
+    { id: 'sub_kt_test_frt', name: 'Fruit Counter', sales_dept: 'frt', dishes: [PKG_FRT_SUBSECTION_DISH] },
+  ] },
+];
+
+// A dish placed in the kit section (definitive "keep") whose RECIPE_DB SOP
+// category is ALSO "beverages" — exercises the THIRD adversarial review's
+// finding: a tri-state realDeptExcludesDish result ('kit' = definitely keep)
+// must short-circuit isExcludedFromKitchenTracking's own fallback chain,
+// not get silently discarded and overridden by the legacy SOP-category
+// heuristic on an UNINITIALIZED event (where that heuristic still runs).
+const PKG_KIT_DISH_WITH_BEV_SOP = 'Test Fixture Package-Section Kit Dish With Bev SOP Category';
+RECIPE_DB.recipes.beverages.push({ n: PKG_KIT_DISH_WITH_BEV_SOP, sub: '', steps: [] });
+MENU_PACKAGE_SECTIONS[PKG_NAME][0].dishes.push(PKG_KIT_DISH_WITH_BEV_SOP); // sec_kt_test_kit
+
+// A dish name listed in BOTH the kit section and the bev section (array
+// order: kit first, bev second) with NO override at all — the literal
+// same-dish-in-two-sections case last-match-wins exists for, not just
+// inferred from the override-vs-package tests.
+const PKG_DISH_IN_TWO_SECTIONS = 'Test Fixture Package Dish Listed In Two Sections';
+MENU_PACKAGE_SECTIONS[PKG_NAME][0].dishes.push(PKG_DISH_IN_TWO_SECTIONS); // sec_kt_test_kit (kit, first)
+MENU_PACKAGE_SECTIONS[PKG_NAME][1].dishes.push(PKG_DISH_IN_TWO_SECTIONS); // sec_kt_test_bev (bev, last — should win)
 
 describe('kitchenDishKey', () => {
   it('builds "<evId>|<dishName>", matching dk() in EventDayTab.jsx/KitchenHub.jsx', () => {
@@ -67,21 +125,6 @@ describe('kitchenDishState / isKitchenDishReady', () => {
 });
 
 describe('kitchenTrackableDishes', () => {
-  // A name with no drink/dessert/fruit word of any kind — so this is excluded
-  // ONLY by matching the RECIPE_DB.recipes.beverages fixture above, never by
-  // pinnedDeptForDish or guessSectionForDish's own word-based guessing (which
-  // getCatIdForDish also falls back to) — isolating the Beverages-CATEGORY
-  // exclusion path from the other two.
-  const BEV_DISH = 'Test Fixture Zzyx Special __kt_bev';
-  // "Ice cream" is in pinnedDeptForDish's own regex, but guessSectionForDish
-  // (which getCatIdForDish falls back to) classifies it as Sweets, not
-  // Beverages — isolating the pinnedDeptForDish exclusion path from the
-  // Beverages-category one (an earlier "Iced Tea" fixture here matched BOTH
-  // paths at once, so neither was actually being tested on its own).
-  const PINNED_DISH = 'Vanilla Ice Cream';
-  const FRUIT_DISH = '5 Imported Fruits'; // isFruitSelectionDish is pure regex parsing, no fixture needed
-  const NORMAL_DISH = 'Paneer Tikka';
-
   it('returns the real menu array, excluding Beverages-category, pinned-dept, and fruit-selection dishes', () => {
     const ev = { id: 'EVT-1', menu: [NORMAL_DISH, BEV_DISH, PINNED_DISH, FRUIT_DISH] };
     expect(kitchenTrackableDishes(ev)).toEqual([NORMAL_DISH]);
@@ -113,6 +156,138 @@ describe('kitchenTrackableDishes', () => {
     expect(kitchenTrackableDishes({ id: 'EVT-1' })).toEqual([]);
     expect(kitchenTrackableDishes(null)).toEqual([]);
     expect(kitchenTrackableDishes(undefined)).toEqual([]);
+  });
+
+  it('on an INITIALIZED event, a dish whose SOP category is Beverages is KEPT — the mirror sync (syncAllKitchenMenuMirrors) already excluded real bev-dept dishes by department, so this is Kitchen\'s own dish, just filed under a Beverages SOP recipe category', () => {
+    // Caught by adversarial review (Fable audit finding): checking the SOP
+    // category here, unconditionally, double-filtered an initialized
+    // event's already department-correct menu — silently dropping a
+    // kit-department dish from every screen with nothing to explain why.
+    const ev = { id: 'EVT-1', menu: [NORMAL_DISH, BEV_DISH, PINNED_DISH, FRUIT_DISH], event_items_initialized: true };
+    expect(kitchenTrackableDishes(ev)).toEqual([NORMAL_DISH, BEV_DISH]);
+  });
+});
+
+describe('kitchenMenuArr index stability', () => {
+  it('returns Beverages-SOP-category and fruit-selection dishes UNFILTERED, in their original order — isExcludedFromKitchenTracking is what filters them, downstream, not this array itself (EventDayTab.jsx\'s byDish loop depends on that ordering staying intact — see kitchenMenuArr\'s own header comment)', () => {
+    const ev = { id: 'EVT-1', menu: [NORMAL_DISH, BEV_DISH, PINNED_DISH, FRUIT_DISH] };
+    expect(kitchenMenuArr(ev)).toEqual([NORMAL_DISH, BEV_DISH, FRUIT_DISH]); // PINNED_DISH alone is dropped here (pinnedDeptForDish), not BEV_DISH/FRUIT_DISH
+  });
+});
+
+describe('isExcludedFromKitchenTracking', () => {
+  it('a fruit-selection dish is excluded regardless of event_items_initialized', () => {
+    expect(isExcludedFromKitchenTracking(FRUIT_DISH, { event_items_initialized: false })).toBe(true);
+    expect(isExcludedFromKitchenTracking(FRUIT_DISH, { event_items_initialized: true })).toBe(true);
+  });
+
+  it('a Beverages-SOP-category dish is excluded on an UNINITIALIZED event (no department-filtered mirror to trust yet)', () => {
+    expect(isExcludedFromKitchenTracking(BEV_DISH, { event_items_initialized: false })).toBe(true);
+  });
+
+  it('a Beverages-SOP-category dish is KEPT on an INITIALIZED event (events.menu is already department-filtered)', () => {
+    expect(isExcludedFromKitchenTracking(BEV_DISH, { event_items_initialized: true })).toBe(false);
+  });
+
+  it('a normal dish is never excluded, initialized or not', () => {
+    expect(isExcludedFromKitchenTracking(NORMAL_DISH, { event_items_initialized: false })).toBe(false);
+    expect(isExcludedFromKitchenTracking(NORMAL_DISH, { event_items_initialized: true })).toBe(false);
+  });
+
+  it('a missing/null/undefined event is treated as uninitialized — falls back to the SOP-category heuristic', () => {
+    expect(isExcludedFromKitchenTracking(BEV_DISH, null)).toBe(true);
+    expect(isExcludedFromKitchenTracking(BEV_DISH, undefined)).toBe(true);
+    expect(isExcludedFromKitchenTracking(NORMAL_DISH, null)).toBe(false);
+  });
+
+  // --- Caught by adversarial review: event_items_initialized alone is NOT
+  // a reliable signal that events.menu has actually been re-mirrored yet.
+  // These exercise the synchronous real-department check that now runs
+  // FIRST, regardless of event_items_initialized, so a genuinely bev/frt
+  // dish can never leak into Kitchen tracking even while the mirror is
+  // stale or still catching up. ---
+
+  it('a package-SECTION bev-dept dish is excluded even on an "initialized" event whose menu has NOT actually been re-mirrored yet', () => {
+    const ev = { event_items_initialized: true, menuPackage: PKG_NAME };
+    expect(isExcludedFromKitchenTracking(PKG_BEV_DISH, ev)).toBe(true);
+  });
+
+  it('a package-SUBSECTION frt-dept dish is excluded the same way, inheriting from its own sales_dept (not its kit-dept parent)', () => {
+    const ev = { event_items_initialized: true, menuPackage: PKG_NAME };
+    expect(isExcludedFromKitchenTracking(PKG_FRT_SUBSECTION_DISH, ev)).toBe(true);
+  });
+
+  it('a package-section KIT-dept dish is correctly NOT excluded by the real-department check', () => {
+    const ev = { event_items_initialized: true, menuPackage: PKG_NAME };
+    expect(isExcludedFromKitchenTracking(PKG_KIT_DISH, ev)).toBe(false);
+  });
+
+  it('an ad-hoc dish tagged via a per-event override to a bev-dept package section is excluded, even though it is in no section\'s own static dish list', () => {
+    const ev = { event_items_initialized: true, menuPackage: PKG_NAME, menu_section_overrides: { [PKG_ADHOC_DISH]: 'sec_kt_test_bev' } };
+    expect(isExcludedFromKitchenTracking(PKG_ADHOC_DISH, ev)).toBe(true);
+  });
+
+  it('a dish with NO package/override signal at all (BEV_DISH, SOP-category-only) still falls through to trusting an initialized event\'s mirror', () => {
+    // Re-confirms the ORIGINAL fix still holds once the real-department
+    // check is added in front of it: a dish the package itself says
+    // nothing about is not something the synchronous check can catch
+    // either way, so it correctly falls through to the next signal.
+    const ev = { event_items_initialized: true, menuPackage: PKG_NAME };
+    expect(isExcludedFromKitchenTracking(BEV_DISH, ev)).toBe(false);
+  });
+
+  it('pinnedDeptForDish wins over a package placement that would otherwise say kit — a pinned dish is always non-kit', () => {
+    const ev = { event_items_initialized: true, menuPackage: PKG_NAME, menu_section_overrides: { [PINNED_DISH]: 'sec_kt_test_kit' } };
+    expect(isExcludedFromKitchenTracking(PINNED_DISH, ev)).toBe(true);
+  });
+
+  // --- Caught by the SECOND adversarial review round: the first version of
+  // realDeptExcludesDish checked the package-section loop BEFORE the
+  // per-event override, and used first-match-wins — both wrong relative to
+  // resolveDeptForDish's real precedence. These exercise the corrected
+  // order directly: an override must win over the package's own placement
+  // in BOTH directions, not just the one direction the first 6 tests above
+  // happened to cover. ---
+
+  it('an override moving a dish OUT of its bev package section into kit is KEPT, not excluded — the override wins over the section it sits in', () => {
+    const ev = { event_items_initialized: true, menuPackage: PKG_NAME, menu_section_overrides: { [PKG_BEV_DISH]: 'sec_kt_test_kit' } };
+    expect(isExcludedFromKitchenTracking(PKG_BEV_DISH, ev)).toBe(false);
+  });
+
+  it('an override moving a dish INTO bev from its kit package section is EXCLUDED, not kept — the override wins even though the kit section would be reached first in a first-match scan', () => {
+    const ev = { event_items_initialized: true, menuPackage: PKG_NAME, menu_section_overrides: { [PKG_KIT_DISH]: 'sec_kt_test_bev' } };
+    expect(isExcludedFromKitchenTracking(PKG_KIT_DISH, ev)).toBe(true);
+  });
+
+  it('a subsection with NO own sales_dept inherits its bev-dept PARENT section\'s dept (not just the kit-dept-parent case already covered by PKG_FRT_SUBSECTION_DISH)', () => {
+    const ev = { event_items_initialized: true, menuPackage: PKG_NAME };
+    expect(isExcludedFromKitchenTracking(PKG_BEV_INHERIT_SUBSECTION_DISH, ev)).toBe(true);
+  });
+
+  it('an override that resolves to null (points at an id this synchronous check cannot resolve, e.g. a catalogue section) is treated as "no signal", not as an exclusion by itself, for a dish with no package placement either', () => {
+    // PKG_ADHOC_DISH sits in no section's own dish list, so once the
+    // unresolvable override is correctly skipped (never substituted for a
+    // real department, and never mistaken for a package-section id), the
+    // package scan that follows also finds nothing for it — this only comes
+    // out `false` if the null override result was genuinely treated as no
+    // signal, not used as a department either way.
+    const ev = { event_items_initialized: true, menuPackage: PKG_NAME, menu_section_overrides: { [PKG_ADHOC_DISH]: 'cat_section_unresolvable_id' } };
+    expect(isExcludedFromKitchenTracking(PKG_ADHOC_DISH, ev)).toBe(false);
+  });
+
+  // --- Caught by a THIRD adversarial review round: a boolean-returning
+  // realDeptExcludesDish conflated "definitively resolved to kit" with "no
+  // signal at all" (both `false`), so a definitive kit answer could still
+  // be discarded and overridden by the legacy SOP-category fallback. ---
+
+  it('a dish definitively placed in a KIT package section is kept even on an UNINITIALIZED event, even though its own SOP/recipe category is "beverages" — a definitive real-department answer must short-circuit the SOP-category fallback, not get silently overridden by it', () => {
+    const ev = { event_items_initialized: false, menuPackage: PKG_NAME };
+    expect(isExcludedFromKitchenTracking(PKG_KIT_DISH_WITH_BEV_SOP, ev)).toBe(false);
+  });
+
+  it('the same dish listed in both a kit section and a bev section (array order: kit first, bev last), with no override at all, resolves via the LAST match — the literal same-dish-in-two-sections case, not just inferred from override-vs-package precedence', () => {
+    const ev = { event_items_initialized: true, menuPackage: PKG_NAME };
+    expect(isExcludedFromKitchenTracking(PKG_DISH_IN_TWO_SECTIONS, ev)).toBe(true);
   });
 });
 

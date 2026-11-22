@@ -5,7 +5,8 @@ import { T } from '../data/translations.js';
 import { TODAY, TOMORROW, DAY_AFTER, safeArr, safePct, calcDispatch, localDateStr } from '../utils/helpers.js';
 import { Card, Btn, Chip } from './SharedUI.jsx';
 import { dbLoad, dbUpsert, dbDelete, dbSubscribe } from '../lib/db.js';
-import { getCatIdForDish, isFruitSelectionDish, RECIPE_DB } from '../data/recipeData.js';
+import { getCatIdForDish, RECIPE_DB } from '../data/recipeData.js';
+import { isExcludedFromKitchenTracking } from '../lib/kitchenDishKey.js';
 import { pinnedDeptForDish } from '../data/salesConfig.js';
 import { describeEventMenu } from '../data/menuPackages.js';
 import { logActivity } from './ActivityLog.jsx';
@@ -437,7 +438,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
     </span>
   );
   const todayEvsAll = safeEvs.filter(e=>e.date===TODAY);
-  const todayDishTotal = todayEvsAll.reduce((n,ev)=>n+menuArr(ev).filter(d=>getCatIdForDish(d)!=="beverages"&&!isFruitSelectionDish(d)).length,0);
+  const todayDishTotal = todayEvsAll.reduce((n,ev)=>n+menuArr(ev).filter(d=>!isExcludedFromKitchenTracking(d, ev)).length,0);
   const todayVehTotal = todayEvsAll.reduce((n,ev)=>n+((dispatches.find(d=>d.evId===ev.id)||{assignments:[]}).assignments.length),0);
 
   return (
@@ -507,7 +508,7 @@ function TransportDispatch({events, kitchenTracking={}, setKitchenTracking=null,
           // beverages/fruit-counter dishes, which never get a transport row).
           const menuBySec = {};
           menu.forEach(n=>{
-            if(getCatIdForDish(n)==="beverages"||isFruitSelectionDish(n)) return;
+            if(isExcludedFromKitchenTracking(n, ev)) return;
             const s=getCatIdForDish(n);
             if(!menuBySec[s]) menuBySec[s]=[];
             menuBySec[s].push(n);
