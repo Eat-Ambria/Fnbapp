@@ -3,7 +3,7 @@
 // across Dashboard.jsx/DeptView.jsx, each using a different wrong key shape).
 
 import { describe, it, expect } from 'vitest';
-import { kitchenDishKey, kitchenDishState, isKitchenDishReady, kitchenTrackableDishes, isExcludedFromKitchenTracking, kitchenMenuArr, dishesTrackedByEvents, combinedBucketAfterPartialReset } from './kitchenDishKey.js';
+import { kitchenDishKey, kitchenDishState, isKitchenDishReady, kitchenTrackableDishes, isExcludedFromKitchenTracking, kitchenMenuArr, dishesTrackedByEvents, combinedBucketAfterPartialReset, clearDishEntryForRemoval } from './kitchenDishKey.js';
 import { RECIPE_DB } from '../data/recipeData.js';
 import { MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 
@@ -485,5 +485,28 @@ describe('combinedBucketAfterPartialReset', () => {
     expect(r.row['dish|Dal Makhani']).toEqual({ mesaDone: false }); // the LATER value, not the earlier one
     expect(r.row['dish|Paneer Tikka']).toBeUndefined(); // the actually-touched dish, still correctly orphaned
     expect(r.orphanKeys).toEqual(['dish|Paneer Tikka']);
+  });
+});
+
+describe('clearDishEntryForRemoval', () => {
+  it('nulls every top-level field the old entry had', () => {
+    const old = { ready: true, readyAt: '10:00am' };
+    expect(clearDishEntryForRemoval(old)).toEqual({ ready: null, readyAt: null });
+  });
+
+  it('nulls every sub-key inside a DISH_STEP_MAPS field (e.g. manual), not the whole map at once', () => {
+    const old = { manual: { 0: true, 1: false } };
+    expect(clearDishEntryForRemoval(old)).toEqual({ manual: { 0: null, 1: null } });
+  });
+
+  it('also nulls mesaDone — unlike tombstoneAgainst\'s own caller (a day reset), a dish leaving the menu entirely has nothing else sharing this row', () => {
+    const old = { ready: true, mesaDone: true };
+    expect(clearDishEntryForRemoval(old)).toEqual({ ready: null, mesaDone: null });
+  });
+
+  it('a null/undefined/empty old entry returns an empty object, never throws', () => {
+    expect(clearDishEntryForRemoval(null)).toEqual({});
+    expect(clearDishEntryForRemoval(undefined)).toEqual({});
+    expect(clearDishEntryForRemoval({})).toEqual({});
   });
 });

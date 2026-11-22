@@ -94,7 +94,7 @@ function SortableDish({ id, disabled, children }) {
   });
 }
 
-function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEvents, openFPEventId = null, onOpenedFP }) {
+function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEvents, openFPEventId = null, onOpenedFP, kitchenTracking = null, setKitchenTracking = null }) {
   var T2 = function(s) { return T(s, lang); };
   var isMobile = useIsMobile();
   var isAdmin = currentUser?.role === "admin" || currentUser?.role === "headchef";
@@ -2751,7 +2751,8 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
           <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: C.bg, overflow: "auto" }}>
             <EventMenuBuilderView event={fpEv} onClose={function(){ setFpViewEvId(null); setFpPrintMode('fp'); loadFpStatuses(); }}
               lang={lang} currentUser={currentUser}
-              autoOpenPrint={fpPrintMode === 'fp'} autoOpenMenuPrint={fpPrintMode === 'menu'} />
+              autoOpenPrint={fpPrintMode === 'fp'} autoOpenMenuPrint={fpPrintMode === 'menu'}
+              kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} />
           </div>
         );
       })()}

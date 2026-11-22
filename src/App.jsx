@@ -2008,9 +2008,10 @@ export default function App() {
       case "dashboard":      return <Dashboard events={events} setEvents={setEvents} setScreen={setScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
       case "team":           return <TeamHub empDb={empDb} setEmpDb={setEmpDb} events={events} lang={lang} activeDept={activeDept} currentUser={currentUser} syncToServer={syncStaff}/>;
       case "kitchen":        return <KitchenHub events={events} setEvents={setEvents_raw} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
-      case "function_plans": return <FunctionPlansHub events={events} lang={lang} currentUser={currentUser}/>;
+      case "function_plans": return <FunctionPlansHub events={events} lang={lang} currentUser={currentUser} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking}/>;
       case "menus":          return <MenuPackagesView lang={lang} currentUser={currentUser} events={events} setEvents={setEvents}
-                                       openFPEventId={pendingFpEventId} onOpenedFP={()=>setPendingFpEventId(null)}/>;
+                                       openFPEventId={pendingFpEventId} onOpenedFP={()=>setPendingFpEventId(null)}
+                                       kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking}/>;
       case "transport":      return <TransportDispatch events={events} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
       case "store":          return <StoreModule events={events} lang={lang} currentUser={currentUser}/>;
       case "access":         return <AccessManager lang={lang} empDb={empDb} setEmpDb={setEmpDb} currentUser={currentUser} syncToServer={syncStaff} checklistsCfg={dbChecklists} setChecklistsCfg={setDbChecklists}/>;
@@ -2022,7 +2023,7 @@ export default function App() {
       case "dept_odc":       return <ODCModule events={events} lang={lang} currentUser={currentUser} checklistsCfg={dbChecklists}/>;
       case "proposals":         return <ProposalsView lang={lang} currentUser={currentUser} empDb={empDb}/>;
       case "sales_catalogue":   return <SalesCatalogueView lang={lang} currentUser={currentUser}/>;
-      case "booked_functions":  return <BookedFunctionsView lang={lang} currentUser={currentUser}/>;
+      case "booked_functions":  return <BookedFunctionsView lang={lang} currentUser={currentUser} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking}/>;
       default: return <div style={{padding:40,textAlign:"center",color:C.muted}}><div style={{fontSize:32,marginBottom:8}}>🔍</div><div style={{fontSize:14}}>Screen not found</div><button onClick={()=>setScreen("dashboard")} style={{marginTop:12,padding:"8px 20px",borderRadius:8,background:C.red,color:"#fff",border:"none",cursor:"pointer"}}>Go to Dashboard</button></div>;
     }
   }

@@ -21,7 +21,7 @@ import { EventMenuBuilderView } from './EventMenuBuilderView.jsx';
 const ANA_VP = {"Ambria Pushpanjali":{code:"AP",c:"#D85A30"},"Ambria Exotica":{code:"AE",c:"#BA7517"},"Manaktala Farm":{code:"MKT",c:"#2563EB"},"Ambria Restro":{code:"AR",c:"#1D9E75"},"Outdoor Catering (ODC)":{code:"ODC",c:"#7F77DD"},"Ambria Manaktala":{code:"AM",c:"#BA7517"}};
 const anaGp = v => ANA_VP[v] || {code:"EV",c:"#2563EB"};
 
-function FunctionPlansHub({ events, lang, currentUser }) {
+function FunctionPlansHub({ events, lang, currentUser, kitchenTracking = null, setKitchenTracking = null }) {
   const T2 = s => T(s, lang);
   const evList = safeArr(events);
 
@@ -139,7 +139,8 @@ function FunctionPlansHub({ events, lang, currentUser }) {
         <div style={{position:"fixed", inset:0, zIndex:2000, background:K.surface, overflow:"auto"}}>
           <EventMenuBuilderView event={fpEv} onClose={() => { setFpViewEvId(null); setFpPrintMode('fp'); loadFpStatusMap(); }}
             lang={lang} currentUser={currentUser}
-            autoOpenPrint={fpPrintMode === 'fp'} autoOpenMenuPrint={fpPrintMode === 'menu'} />
+            autoOpenPrint={fpPrintMode === 'fp'} autoOpenMenuPrint={fpPrintMode === 'menu'}
+            kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} />
         </div>
       )}
     </div>

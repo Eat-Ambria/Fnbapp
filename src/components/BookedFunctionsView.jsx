@@ -29,7 +29,7 @@ function parseEventDate(s) {
   return isNaN(t) ? null : t;
 }
 
-export function BookedFunctionsView({ lang = "en", currentUser = null }) {
+export function BookedFunctionsView({ lang = "en", currentUser = null, kitchenTracking = null, setKitchenTracking = null }) {
   var T2 = function(s) { return T(s, lang); };
   var isMobile = useIsMobile();
 
@@ -273,7 +273,7 @@ export function BookedFunctionsView({ lang = "en", currentUser = null }) {
   if (menuBuilderEvent) {
     return (
       <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 100, background: C.bg }}>
-        <EventMenuBuilderView event={menuBuilderEvent} onClose={closeMenuBuilder} lang={lang} currentUser={currentUser} initialTab={menuBuilderTab} autoOpenMenuPrint={menuBuilderAutoPrint} />
+        <EventMenuBuilderView event={menuBuilderEvent} onClose={closeMenuBuilder} lang={lang} currentUser={currentUser} initialTab={menuBuilderTab} autoOpenMenuPrint={menuBuilderAutoPrint} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} />
       </div>
     );
   }

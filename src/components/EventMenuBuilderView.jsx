@@ -18,6 +18,7 @@ import { supabase } from '../lib/supabase.js';
 import { fetchAllRows, dbSubscribe } from '../lib/db.js';
 import * as menuItemOps from '../lib/menuItemOps.js';
 import { resolveDeptForDish as resolveDeptForDishShared } from '../lib/eventItems.js';
+import { kitchenDishKey, clearDishEntryForRemoval } from '../lib/kitchenDishKey.js';
 import { useMenuItemGrouping } from '../utils/useMenuItemGrouping.js';
 import { ItemsTab, DietChip, ComingSoonPlaceholder, SubTabStrip, LiveTotalRows } from './MenuBuilderView.jsx';
 import { ConfigsPanel } from './ConfigsPanel.jsx';
@@ -101,7 +102,7 @@ function formatFpHistoryValue(field, v) {
 // sales_items_meta reads (and, for a brand-new event, a legacy-menu
 // SEED WRITE — see seedFromLegacyMenuIfNeeded) that a public, anonymous
 // viewer has no business triggering.
-export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser = null, initialTab = 'items', autoOpenPrint = false, autoOpenMenuPrint = false, preload = null }) {
+export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser = null, initialTab = 'items', autoOpenPrint = false, autoOpenMenuPrint = false, preload = null, kitchenTracking = null, setKitchenTracking = null }) {
   var T2 = function(s) { return T(s, lang); };
   var isMobile = useIsMobile();
 
@@ -538,6 +539,42 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       console.error('[EventMenuBuilder] mirrorKitchenMenu failed:', e);
       alert(T2('Kitchen Hub menu sync failed — this dish list may not reach Kitchen Hub:') + ' ' + (e.message || e));
     }
+  }
+
+  // Fable audit "orphaned rows on dish removal": a dish's own kitchen_tracking
+  // row (keyed evId|dishName) used to never get cleared when the dish left
+  // this event's menu — local state or server — so re-adding the SAME dish
+  // to the SAME event later resurrected its old ready/step progress, looking
+  // like it had already been worked on. Called at the exact moment a dish is
+  // deliberately removed (toggleDish/removeWholeSection below), NOT from a
+  // reactive comparison against events.menu — that mirror is known to go
+  // transiently stale right after a package quick-start/switch (see
+  // kitchenDishKey.js's realDeptExcludesDish header comment), and wiping a
+  // row based on a transient absence there would risk destroying a chef's
+  // real in-progress data instead of just stale data.
+  // No-op if this view wasn't given write access to kitchen_tracking (the
+  // public FP link — PublicFPHub.jsx — never is, and never reaches this
+  // code path anyway: it mounts read-only, currentUser null, straight into
+  // the FP print tab) or if nothing was ever tracked for these names (no
+  // local entry to clear) — setKitchenTracking's updater returns the exact
+  // same `prev` reference in that case, so React skips the re-render too.
+  function clearKitchenTrackingForRemovedDishes(names) {
+    if (!setKitchenTracking || !names || names.length === 0 || !event || !event.id) return;
+    setKitchenTracking(function(prev){
+      var evRow = (prev && prev[event.id]) || {};
+      var nextEvRow = null;
+      names.forEach(function(dishName){
+        var key = kitchenDishKey(event.id, dishName);
+        var oldEntry = evRow[key];
+        if (!oldEntry) return; // never tracked for this event — nothing to clear
+        if (!nextEvRow) nextEvRow = Object.assign({}, evRow);
+        nextEvRow[key] = clearDishEntryForRemoval(oldEntry);
+      });
+      if (!nextEvRow) return prev;
+      var next = Object.assign({}, prev);
+      next[event.id] = nextEvRow;
+      return next;
+    });
   }
 
   // V79 — self-heal once right after the initial load finishes (using the fresh,
@@ -1360,6 +1397,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       var result = await menuItemOps.toggleDishItem(itemsOpsConfig, dishItems, dishName, !!templateSet[dishName], setDishItems);
       logFpHistory((result.action === 'added' ? T2('Added dish') : T2('Removed dish')) + ': ' + dishName);
       if (isKitchenTrackedDish(dishName)) await mirrorKitchenMenu(result.nextItems);
+      if (result.action === 'removed') clearKitchenTrackingForRemovedDishes([dishName]);
     } catch (e) {
       console.error('[EventMenuBuilder] toggle failed:', e);
       await loadItems().then(setDishItems);
@@ -1510,6 +1548,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     try {
       var result = await menuItemOps.removeSectionItems(itemsOpsConfig, dishItems, names, setDishItems);
       if (names.some(isKitchenTrackedDish)) await mirrorKitchenMenu(result.nextItems);
+      clearKitchenTrackingForRemovedDishes(names);
       logFpHistory(T2('Removed section') + ': ' + grp.name + ' (' + names.length + ' ' + T2('dishes') + ')');
     } catch (e) {
       console.error('[EventMenuBuilder] removeWholeSection failed:', e);

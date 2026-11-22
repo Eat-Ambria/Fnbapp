@@ -232,6 +232,40 @@ function tombstoneAgainst(oldEntry, freshEntry) {
   return result;
 }
 
+// Fully clears a per-event dish row the moment a dish is REMOVED from an
+// event's menu entirely (a deliberate user action — EventMenuBuilderView.jsx's
+// toggleDish/removeWholeSection) — Fable audit "orphaned rows on dish
+// removal": a kitchen_tracking row keyed evId|dishName was never cleared
+// when a dish left an event's menu, local state or server, so re-adding the
+// SAME dish to the SAME event later resurrected its old ready/step state,
+// looking like it had already been worked on.
+//
+// Reuses tombstoneAgainst's null-every-field logic against an empty fresh
+// entry (so diffDishState/kt_set_paths actually upload the clear through
+// the ordinary sync effect, not just drop the key locally — the same reason
+// combinedBucketAfterPartialReset above needs it), but ALSO nulls mesaDone,
+// which tombstoneAgainst deliberately skips for ITS OWN caller (a day
+// reset, which must preserve mesaDone since other still-live functions
+// share the combined bucket's D-1 prep state). A dish leaving the menu
+// entirely has no such constraint at the WRITE level — nothing else writes
+// to this specific evId|dishName row. (EventDayTab.jsx's combined-view READ
+// does fold every contributing function's own mesaDone onto the combined
+// row, so if another function that same day still serves this dish, its
+// Combined-view mesaDone display can transiently flip to not-done until
+// events state/kitchen_tracking's own realtime echoes settle — self-
+// correcting, not data loss, and the same class of brief lag this
+// session's other kitchen_tracking fixes already accept elsewhere.)
+//
+// Deliberately does NOT touch the "__combined_<date>" bucket's own per-dish
+// entry — that's a SEPARATE dish_key shape (dish name alone, shared across
+// every function on that day), and a dish removed from ONE event's menu
+// says nothing about whether other functions that same day still serve it.
+export function clearDishEntryForRemoval(oldEntry) {
+  const result = tombstoneAgainst(oldEntry, {});
+  if (oldEntry && 'mesaDone' in oldEntry) result.mesaDone = null;
+  return result;
+}
+
 // Resetting one (but not all) of a day's functions deletes that function's
 // own kitchen_tracking row, but the shared "__combined_<day>" bucket is
 // deliberately left alone (wiping it on a PARTIAL reset would also erase the
