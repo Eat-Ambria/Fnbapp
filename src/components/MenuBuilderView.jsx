@@ -962,9 +962,11 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
   var [customSaving, setCustomSaving] = useState(false);
   var placementOptions = useMemo(function(){
     var out = [];
-    var seen = {};
+    var seen = {};       // by id
+    var seenTopNames = {}; // by normalized TOP-LEVEL pill name
+    function norm(s){ return (s || '').toLowerCase().trim(); }
     groupedByCat.forEach(function(g){
-      out.push({ id: g.id, label: g.name }); seen[g.id] = true;
+      out.push({ id: g.id, label: g.name }); seen[g.id] = true; seenTopNames[norm(g.name)] = true;
       (g.subGroups || []).forEach(function(sg){ out.push({ id: sg.id, label: g.name + ' › ' + sg.name }); seen[sg.id] = true; });
     });
     // Also offer every catalogue section routed to this dept that isn't
@@ -973,8 +975,23 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
     // global dish_catalogue_sections row and should be placeable here right
     // away, not hidden until someone separately "Add section from library"s
     // it into this specific menu too.
+    //
+    // Caught by a Fable audit ("duplicate-looking placement chips"): an
+    // UNLINKED, hand-built package section sharing its NAME (not its id)
+    // with a real catalogue section used to slip past the `seen[o.id]`
+    // check (different ids) and get offered as a SECOND, visually
+    // identical chip — picking either produced the same place on the
+    // printed sheet (pkgCatalogueSectionIds' own id-first/name-second
+    // seedFor already treats an unlinked top-level section's name match as
+    // THE SAME catalogue section elsewhere in this app), so the two chips
+    // were redundant, not a real choice, and indistinguishable to whoever
+    // is tagging a dish. Name-fallback applies ONLY to a TOP-LEVEL pill
+    // (seenTopNames), never a subsection's — matching that same precedent
+    // exactly (a subsection's name is never unique enough to merge on, and
+    // its catalogue option label is "— Name", never a bare name anyway).
     (catalogueSectionOptions || []).forEach(function(o){
       if (seen[o.id]) return;
+      if (seenTopNames[norm(o.label)]) return;
       seen[o.id] = true;
       out.push({ id: o.id, label: o.label });
     });
