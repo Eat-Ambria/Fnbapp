@@ -368,6 +368,13 @@ function hydrateRecipeData(cfg) {
   if (cfg.dishStoreMap) {
     DISH_STORE_MAP = cfg.dishStoreMap;
   }
+  // A component mounted before boot hydration finishes (App.jsx restores a
+  // cached login before config has loaded) would otherwise keep showing
+  // whatever it read on its OWN mount — an empty/stale dish list — until an
+  // unrelated realtime change happened to notify it later. notifyDishDataChange
+  // is defined further down in this file but, as a function declaration, is
+  // hoisted and safely callable here regardless of source order.
+  notifyDishDataChange();
 }
 
 // ─── RECIPE REALTIME SYNC ────────────────────────────────────────
@@ -414,11 +421,36 @@ function patchRecipeRow(r, isDelete) {
     console.error('[patchRecipeRow] failed', e);
   }
 }
+// A small pub-sub set so a consumer (useMenuItemGrouping.js's allDishes —
+// see its own comment) can re-derive whatever it built from DISH_MASTER/
+// RECIPE_DB/DISH_CAT_MAP/DISH_NAME_MAP/DISH_HINDI_MAP the moment any of them
+// actually changes, WITHOUT opening its own separate realtime channel.
+// Opening a second, independent subscription to the same table was tried
+// first and reviewed out: realtime-js gives no ordering guarantee between
+// two separate channels receiving the same underlying row change, so a
+// consumer's own channel could fire and re-read BEFORE this file's own
+// handler (a different channel) had actually patched the map yet — a race
+// that could leave a consumer stuck one change stale until some unrelated
+// later change came along. Calling listeners from INSIDE each handler here,
+// after it finishes patching, removes that race by construction: by the
+// time a listener runs, the map it's about to re-read is already current.
+const dishDataListeners = new Set();
+function onDishDataChange(cb) {
+  dishDataListeners.add(cb);
+  return function () { dishDataListeners.delete(cb); };
+}
+function notifyDishDataChange() {
+  dishDataListeners.forEach(function (cb) {
+    try { cb(); } catch (e) { console.error('[recipeData] onDishDataChange listener threw:', e); }
+  });
+}
+
 function subscribeRecipeRealtime(supabase) {
   return supabase.channel('recipes_global_rt')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'recipes' }, (p) => {
       if (p.eventType === 'DELETE') patchRecipeRow(p.old, true);
       else patchRecipeRow(p.new, false);
+      notifyDishDataChange();
     })
     .subscribe();
 }
@@ -444,17 +476,20 @@ function subscribeDishMetaRealtime(supabase) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_categories' }, (p) => {
       const row = p.eventType === 'DELETE' ? p.old : p.new;
       upsertDishCat(row && row.dish_name, p.eventType === 'DELETE' ? null : row.category_id);
+      notifyDishDataChange();
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_name_map' }, (p) => {
       const row = p.eventType === 'DELETE' ? p.old : p.new;
       upsertDishNameMap(row && row.lms_name, p.eventType === 'DELETE' ? null : row.recipe_dish_name);
+      notifyDishDataChange();
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_hindi_map' }, (p) => {
       const row = p.eventType === 'DELETE' ? p.old : p.new;
       upsertDishHindi(row && row.dish_name, p.eventType === 'DELETE' ? null : row.hi);
+      notifyDishDataChange();
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dishes_master' }, (p) => {
-      if (p.eventType === 'DELETE') { if (p.old && p.old.dish_name) delete DISH_MASTER[p.old.dish_name]; return; }
+      if (p.eventType === 'DELETE') { if (p.old && p.old.dish_name) delete DISH_MASTER[p.old.dish_name]; notifyDishDataChange(); return; }
       const r = p.new;
       if (!r || !r.dish_name) return;
       DISH_MASTER[r.dish_name] = {
@@ -467,6 +502,7 @@ function subscribeDishMetaRealtime(supabase) {
         no_auto_select:  !!r.no_auto_select,
         alt_group:       r.alt_group || null
       };
+      notifyDishDataChange();
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_store_map' }, (p) => {
       if (p.eventType === 'DELETE') { if (p.old && p.old.dish_name) delete DISH_STORE_MAP[p.old.dish_name]; return; }
@@ -1032,4 +1068,4 @@ async function createCustomDishInLibrary(supabase, name, catId, catalogueSection
   return result;
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, parseFruitSpec, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, isDishNoSopMarked, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, subscribeRecipeRealtime, subscribeDishMetaRealtime, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, parseFruitSpec, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, isDishNoSopMarked, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, subscribeRecipeRealtime, subscribeDishMetaRealtime, onDishDataChange, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary };

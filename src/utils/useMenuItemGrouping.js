@@ -27,8 +27,8 @@
 // at all. Each caller keeps its own few-line derivation and passes the result
 // straight to <ItemsTab>, exactly as both already do today.
 
-import { useMemo } from 'react';
-import { RECIPE_DB, getAllDishes, getCatIdForDish, resolveDishHindi } from '../data/recipeData.js';
+import { useMemo, useState, useEffect } from 'react';
+import { RECIPE_DB, getAllDishes, getCatIdForDish, resolveDishHindi, onDishDataChange } from '../data/recipeData.js';
 import { MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { DEFAULT_DEPT, DEFAULT_DIET, pinnedDeptForDish } from '../data/salesConfig.js';
 import { resolveDeptForOverrideTarget } from '../lib/sectionDept.js';
@@ -68,6 +68,48 @@ export function useMenuItemGrouping(params) {
   // without this the empty dep array would keep serving the mount-time
   // snapshot forever: the new dish would get selected but never appear in any
   // section group, since the grouped-by-section views look it up by name here.
+  //
+  // dishLibBump alone only covers THIS tab's own addCustomDish path, though.
+  // recipeData.js's subscribeRecipeRealtime/subscribeDishMetaRealtime already
+  // keep DISH_MASTER/RECIPE_DB/DISH_CAT_MAP/DISH_NAME_MAP/DISH_HINDI_MAP
+  // themselves live app-wide (boot-time, global), but mutating a plain
+  // object doesn't trigger a React re-render/re-memo on its own — so a dish
+  // re-sectioned, re-activated, re-categorized, Hindi-retagged, mapped to a
+  // different SOP recipe, or given a brand-new recipe FROM ELSEWHERE (Dish
+  // Library, another tablet) stayed invisible here, with stale placement/
+  // price/recipe-status, until something else happened to bump dishLibBump
+  // or this tab was reopened.
+  //
+  // catalogueBump re-reads on any such change, wherever it came from — via
+  // recipeData.js's own onDishDataChange, NOT a separate realtime
+  // subscription opened here. A first version of this fix opened its own
+  // dbSubscribe('dishes_master'/'recipes', ...) channels directly, but
+  // adversarial review found that unsafe: realtime-js gives no ordering
+  // guarantee between two independent channels receiving the same
+  // underlying row change, so this hook's own channel could fire and
+  // re-read BEFORE recipeData.js's OWN separate channel had actually
+  // patched the map yet, leaving this tab stuck one change stale until an
+  // unrelated later change came along — and it only covered 2 of the 5
+  // tables that actually feed allDishes below (missing dish_categories/
+  // dish_name_map/dish_hindi_map). onDishDataChange is called from INSIDE
+  // each of recipeData.js's own handlers, after the map is already patched,
+  // which removes the race by construction and covers every table that
+  // handler maintains for free.
+  //
+  // Debounced (150ms): a bulk write (a section drag-reorder, a dish merge,
+  // a recipe import) fires one postgres_changes event PER ROW, each its own
+  // realtime frame — without this, every open Items tab would re-run this
+  // whole map (which itself does per-dish category/Hindi lookups) once per
+  // row instead of once per batch.
+  var [catalogueBump, setCatalogueBump] = useState(0);
+  useEffect(function(){
+    var timer = null;
+    var unsub = onDishDataChange(function(){
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function(){ setCatalogueBump(function(n){ return n + 1; }); }, 150);
+    });
+    return function(){ if (timer) clearTimeout(timer); unsub(); };
+  }, []);
   var allDishes = useMemo(function(){
     var raw = getAllDishes ? getAllDishes({ includeInactive: false }) : [];
     return raw.map(function(d){
@@ -88,7 +130,7 @@ export function useMenuItemGrouping(params) {
       };
     });
   // eslint-disable-next-line
-  }, [dishLibBump]);
+  }, [dishLibBump, catalogueBump]);
   var allDishesByName = useMemo(function(){
     var m = {}; allDishes.forEach(function(d){ m[d.name] = d; }); return m;
   }, [allDishes]);
