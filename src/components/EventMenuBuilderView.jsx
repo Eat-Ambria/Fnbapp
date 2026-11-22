@@ -1575,6 +1575,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         packageName={templateInfo.name}
         menuDiffByDept={menuDiffByDept}
         configsByDept={printConfigs}
+        outsourcedSet={outsourcedSet}
         currentUser={currentUser}
         onAckChef={ackFpChef}
         onClose={function(){

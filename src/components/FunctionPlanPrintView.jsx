@@ -217,7 +217,7 @@ function Bullet({ children, dot, changed }) {
   </div>;
 }
 
-export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder, dishSectionName, dishSectionId, packageName, menuDiffByDept, configsByDept, currentUser, onAckChef, onClose, T2 }) {
+export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder, dishSectionName, dishSectionId, packageName, menuDiffByDept, configsByDept, outsourcedSet, currentUser, onAckChef, onClose, T2 }) {
   var [acking, setAcking] = useState(false);
   function handleAck() {
     if (!onAckChef || acking) return;
@@ -304,6 +304,22 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
       return ackSnapPlacement[name] !== currentDishPlacement[name];
     }
     return false;
+  }
+  // Fable audit item #12 ("outsourced dishes aren't marked on the FP"): a
+  // dish toggled "outsourced" (vendor-supplied, events.outsourced_dishes)
+  // used to print exactly like any in-house dish, with nothing telling the
+  // kitchen it isn't theirs to prep. Only tags a dish that's actually ON the
+  // menu right now — a removed ("−") diff line is gone either way, so
+  // marking it outsourced would be noise, not information.
+  function outTag(name) {
+    // hasOwnProperty, not a bare outsourcedSet[name] lookup -- dish names are
+    // free text in the Dish Library, and a dish literally named "constructor"/
+    // "toString"/"__proto__" would otherwise resolve through Object.prototype's
+    // own chain to a truthy inherited value, falsely printing "(Outsourced)"
+    // for a dish that was never toggled outsourced. Caught by adversarial review.
+    return (outsourcedSet && Object.prototype.hasOwnProperty.call(outsourcedSet, name))
+      ? <span style={{ fontWeight: 400, fontStyle: "italic", color: "#555" }}> ({T2("Outsourced")})</span>
+      : null;
   }
   var fpSnapshotMap = {};
   function fieldChanged(key, diffVal) {
@@ -645,7 +661,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                                     {isNewSection && <SectionSubHead>{sec === 'Extras' ? T2('Extras') : sec}</SectionSubHead>}
                                     <Bullet dot={false} changed={dishChanged(n)}>
                                       {sign === '+'
-                                        ? <span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span>
+                                        ? <span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}{outTag(n)}</span>
                                         : <span style={{ color: "#B3281F", fontWeight: 700 }}>− {n}</span>}
                                     </Bullet>
                                   </React.Fragment>
@@ -662,7 +678,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                           return (
                             <div key={sec.id || sec.name}>
                               <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2("New")} {sec.name})</span></SubHead>
-                              {sortedByVeg(sec.dishes, dishSectionOrder).map(function(n){ return <Bullet key={'n' + n} dot={false} changed={dishChanged(n)}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}</span></Bullet>; })}
+                              {sortedByVeg(sec.dishes, dishSectionOrder).map(function(n){ return <Bullet key={'n' + n} dot={false} changed={dishChanged(n)}><span style={{ color: "#1C7A3D", fontWeight: 700 }}>+ {n}{outTag(n)}</span></Bullet>; })}
                             </div>
                           );
                         })}
@@ -712,7 +728,7 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                         return (
                           <React.Fragment key={n}>
                             {isNewSection && <SectionSubHead>{sec === 'Extras' ? T2('Extras') : sec}</SectionSubHead>}
-                            <Bullet changed={dishChanged(n)}>{n}</Bullet>
+                            <Bullet changed={dishChanged(n)}>{n}{outTag(n)}</Bullet>
                           </React.Fragment>
                         );
                       })}
