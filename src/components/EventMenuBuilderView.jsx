@@ -942,6 +942,19 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   }
 
   // ── All selected dish names grouped by effective dept, for the printable FP ──
+  // Caught by a Fable audit ("stale deps on itemsByDept / menuDiffByDept"):
+  // effectiveDeptForDish reads sectionOverrideDept (a per-event placement-tag
+  // override, resolved by useMenuItemGrouping.js) as part of its own
+  // precedence chain, but this memo's dep array never listed it — the same
+  // omission newSectionsByDept's own deps (below) were already fixed to
+  // include, and the exact class of bug this codebase has hit before (see
+  // this file's own header-adjacent useMenuItemGrouping.js comment on
+  // deptDishes). Re-tagging a dish's placement (which changes
+  // sectionOverrideDept) didn't recompute itemsByDept until some UNRELATED
+  // dependency happened to change and force a recompute — the FP print's
+  // dept groupings (and everything downstream of them, including the
+  // ack-diff placement signature) could silently show the dish under its
+  // OLD department until then.
   var itemsByDept = useMemo(function(){
     var out = {};
     SALES_DEPTS.forEach(function(d){ out[d.id] = []; });
@@ -952,7 +965,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     });
     return out;
   // eslint-disable-next-line
-  }, [dishItems, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta]);
+  }, [dishItems, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta, sectionOverrideDept]);
 
   // dish_name -> a sortable number for the printable FP's catalogue order.
   // dish_catalogue_sections' sort_order is only meaningful among SIBLINGS —
@@ -1229,6 +1242,11 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // Station dish shows as an "Add-on" (it's a deliberate pick out of many
   // options), never as part of a silent baseline; an unpicked one is just
   // absent, not a "Deduction" — see noAutoSelectDishNames above.
+  // `sectionOverrideDept` is in this memo's own deps for the same reason as
+  // itemsByDept above: the `added` bucket below resolves through
+  // effectiveDeptForDish, which reads it — the `removed` bucket doesn't
+  // (a never-selected dish was never re-tagged via an event-specific
+  // override to begin with), but the memo as a whole still depends on it.
   var menuDiffByDept = useMemo(function(){
     if (!templateInfo.name || pkgBaselineDishList.length === 0) return {};
     var pkgSecsAll = MENU_PACKAGE_SECTIONS[templateInfo.name] || [];
@@ -1333,7 +1351,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     });
     return out;
   // eslint-disable-next-line
-  }, [dishItems, templateInfo.name, pkgBaselineDishList, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta, noAutoSelectDishNames, pkgBaselineDishNames, newSectionsByDept]);
+  }, [dishItems, templateInfo.name, pkgBaselineDishList, dishNameToPkgDept, allDishesByName, sectionSalesDeptMap, salesMeta, sectionOverrideDept, noAutoSelectDishNames, pkgBaselineDishNames, newSectionsByDept]);
 
   // ── Toggle dish: insert or delete in event_items, mirror kitchen dept to events.menu ──
   async function toggleDish(dishName) {
