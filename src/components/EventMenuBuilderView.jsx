@@ -1256,7 +1256,27 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         // could never appear in THIS dept's removedSet even when it really
         // is gone, so it must not be required for the section to count as
         // fully removed.
-        var names = (sec.dishes || []).filter(function(n){
+        // sec.dishes alone is only this section's OWN direct dishes — a
+        // section with subsections (e.g. "Main Course" > "Hyderabadi
+        // Cuisine") can have few or none of its own, with the real dish
+        // list living in sec.subsections[].dishes. Reading only sec.dishes
+        // here either (a) never collapses such a section at all, even once
+        // every one of its subsection dishes is gone, or worse (b) falsely
+        // reports the WHOLE section removed once just its few direct
+        // dishes are gone, while a subsection's dishes are still being
+        // served. Pooling both before filtering fixes both directions.
+        // De-duplicated: a dish can end up listed in both a section's own
+        // list and a subsection's (or two subsections') — addDishToSubsection/
+        // resyncSubsection in MenuPackagesView.jsx only check for an existing
+        // name within the ONE list they're adding to, not the parent or
+        // sibling subsections. Pooling without deduping would inflate the
+        // displayed dish count and, for a section whose only real dish is
+        // double-listed this way, could let a single dish removal slip past
+        // the "more than one dish" collapse threshold just below.
+        var allSectionDishNames = (sec.dishes || []).concat(
+          (sec.subsections || []).reduce(function(acc, sub){ return acc.concat(sub.dishes || []); }, [])
+        ).filter(function(n, i, arr){ return arr.indexOf(n) === i; });
+        var names = allSectionDishNames.filter(function(n){
           if (noAutoSelectDishNames.has(n)) return false;
           var dept = pinnedDeptForDish(n) || dishNameToPkgDept[n] || DEFAULT_DEPT;
           return dept === d.id;
