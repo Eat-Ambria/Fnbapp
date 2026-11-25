@@ -903,6 +903,16 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
       return s;
     };
     return all.filter(function(g, i){
+      // An ad hoc pill (sectionOverrides-tagged — "Add section from library",
+      // or a dish's extra multi-section tag) is a DELIBERATE duplicate: its
+      // whole purpose is to also show a dish that's already reachable
+      // elsewhere. The "redundant child section" test below exists for a
+      // totally different, package-authoring-time case (two of the
+      // PACKAGE'S OWN static sections nesting into one another) and would
+      // otherwise swallow an ad hoc pill whenever its only dish happens to
+      // live inside some other section's subGroup — exactly the case a
+      // multi-tagged dish is meant to hit. Never drop one of these.
+      if (g.isAdHoc) return true;
       var mine = namesOf(g.dishes);
       var count = Object.keys(mine).length;
       if (count === 0) return true;
