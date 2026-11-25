@@ -1342,18 +1342,24 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
             // A pill with a single child IS that package-default section — it
             // never gets a second row to remove it from (second row only
             // renders when children.length > 1), so the removal affordance has
-            // to live here instead for this, the common, case.
+            // to live here instead for this, the common, case. A sole-child ad
+            // hoc pill (a brand-new section with no subsections of its own, or
+            // a dish's only extra multi-section tag) hits this exact same gap —
+            // it never reaches the second row's own ad hoc removal button
+            // either, so it needs the matching affordance here too.
             var soleGroup = p.children.length === 1 ? p.children[0] : null;
             var canRemoveWhole = !!(soleGroup && !soleGroup.isAdHoc && soleGroup.id !== '__extras__' && onRemoveWholeSection && selCount > 0);
+            var canRemoveAdHoc = !!(soleGroup && soleGroup.isAdHoc && onRemoveSection);
+            var hasRemoveBtn = canRemoveWhole || canRemoveAdHoc;
             return (
               <span key={p.key} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
                 <button onClick={function(){ setActiveSectionId(p.children[0].id); }}
                   className={"kh-secpill" + (isActive ? " is-on" : "")}
                   style={{
                     display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", flexShrink: 0, fontFamily: K.fontBody,
-                    padding: "11px 18px", borderRadius: canRemoveWhole ? "999px 0 0 999px" : 999, fontSize: 13, fontWeight: isActive ? 700 : 600,
+                    padding: "11px 18px", borderRadius: hasRemoveBtn ? "999px 0 0 999px" : 999, fontSize: 13, fontWeight: isActive ? 700 : 600,
                     background: isActive ? K.brand : "#FFFFFF", color: isActive ? "#FFFFFF" : K.textBody,
-                    border: "1px solid " + (isActive ? K.brand : K.cardWarmLine), borderRight: canRemoveWhole ? "none" : undefined, cursor: "pointer",
+                    border: "1px solid " + (isActive ? K.brand : K.cardWarmLine), borderRight: hasRemoveBtn ? "none" : undefined, cursor: "pointer",
                   }}>
                   <span style={{ fontSize: 15, lineHeight: 1 }}>{p.icon}</span>{p.name}
                   <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", color: isActive ? "rgba(255,255,255,.85)" : K.textFaint }}>
@@ -1369,6 +1375,19 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
                   <button onClick={function(){ onRemoveWholeSection(soleGroup); }}
                     className="kh-secx"
                     title={T2("Remove this whole section's dishes from the menu")}
+                    style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                      padding: "11px 12px", borderRadius: "0 999px 999px 0", fontSize: 12, fontWeight: 700, lineHeight: 1,
+                      background: isActive ? K.brand : "#FFFFFF", color: isActive ? "rgba(255,255,255,.8)" : K.textFaint,
+                      border: "1px solid " + (isActive ? K.brand : K.cardWarmLine), borderLeft: "1px solid " + (isActive ? "rgba(255,255,255,0.4)" : C.border), cursor: "pointer",
+                    }}>
+                    ✕
+                  </button>
+                )}
+                {canRemoveAdHoc && (
+                  <button onClick={function(){ onRemoveSection(soleGroup); if (activeSectionId === soleGroup.id) setActiveSectionId(null); }}
+                    className="kh-secx"
+                    title={T2("Remove this ad-hoc section from this menu")}
                     style={{
                       display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
                       padding: "11px 12px", borderRadius: "0 999px 999px 0", fontSize: 12, fontWeight: 700, lineHeight: 1,
