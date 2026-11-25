@@ -35,5 +35,11 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: './dist'
+      # GitHub's artifact-metadata index can lag a few seconds behind the
+      # upload step finishing, which makes deploy-pages fail with "No
+      # artifacts named github-pages were found" even though the upload
+      # genuinely succeeded (seen repeatedly 2026-11-25, no real build
+      # issue). A short wait here gives the index time to catch up.
+      - run: sleep 15
       - id: deployment
         uses: actions/deploy-pages@v4
