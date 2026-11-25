@@ -18,7 +18,7 @@ import { supabase } from '../lib/supabase.js';
 import { fetchAllRows, dbSubscribe } from '../lib/db.js';
 import * as menuItemOps from '../lib/menuItemOps.js';
 import { resolveDeptForDish as resolveDeptForDishShared } from '../lib/eventItems.js';
-import { kitchenDishKey, clearDishEntryForRemoval } from '../lib/kitchenDishKey.js';
+import { clearKitchenTrackingForRemovedDishes as clearKitchenTrackingForRemovedDishesShared } from '../lib/kitchenDishKey.js';
 import { useMenuItemGrouping } from '../utils/useMenuItemGrouping.js';
 import { ItemsTab, DietChip, ComingSoonPlaceholder, SubTabStrip, LiveTotalRows } from './MenuBuilderView.jsx';
 import { ConfigsPanel } from './ConfigsPanel.jsx';
@@ -559,22 +559,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // local entry to clear) — setKitchenTracking's updater returns the exact
   // same `prev` reference in that case, so React skips the re-render too.
   function clearKitchenTrackingForRemovedDishes(names) {
-    if (!setKitchenTracking || !names || names.length === 0 || !event || !event.id) return;
-    setKitchenTracking(function(prev){
-      var evRow = (prev && prev[event.id]) || {};
-      var nextEvRow = null;
-      names.forEach(function(dishName){
-        var key = kitchenDishKey(event.id, dishName);
-        var oldEntry = evRow[key];
-        if (!oldEntry) return; // never tracked for this event — nothing to clear
-        if (!nextEvRow) nextEvRow = Object.assign({}, evRow);
-        nextEvRow[key] = clearDishEntryForRemoval(oldEntry);
-      });
-      if (!nextEvRow) return prev;
-      var next = Object.assign({}, prev);
-      next[event.id] = nextEvRow;
-      return next;
-    });
+    clearKitchenTrackingForRemovedDishesShared(setKitchenTracking, event && event.id, names);
   }
 
   // V79 — self-heal once right after the initial load finishes (using the fresh,

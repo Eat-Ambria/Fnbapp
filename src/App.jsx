@@ -1699,7 +1699,7 @@ export default function App() {
     // the one exception: its "jump to screen" callback has to drive this
     // tablet's own tabletScreen state, not the admin shell's.
     function tabletContent(scr){
-      if(scr==="dashboard") return <Dashboard events={events} setEvents={setEvents} setScreen={setTabletScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
+      if(scr==="dashboard") return <Dashboard events={events} setEvents={setEvents} setScreen={setTabletScreen} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
       return renderScreen(scr);
     }
     return (
@@ -2005,7 +2005,7 @@ export default function App() {
   function renderScreen(s){
     if (!canAccessScreen(currentUser, s)) return LOCK_SCREEN;
     switch(s){
-      case "dashboard":      return <Dashboard events={events} setEvents={setEvents} setScreen={setScreen} kitchenTracking={kitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
+      case "dashboard":      return <Dashboard events={events} setEvents={setEvents} setScreen={setScreen} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} empDb={empDb}/>;
       case "team":           return <TeamHub empDb={empDb} setEmpDb={setEmpDb} events={events} lang={lang} activeDept={activeDept} currentUser={currentUser} syncToServer={syncStaff}/>;
       case "kitchen":        return <KitchenHub events={events} setEvents={setEvents_raw} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking} lang={lang} currentUser={currentUser} transportQueue={transportQueue} setTransportQueue={setTransportQueue}/>;
       case "function_plans": return <FunctionPlansHub events={events} lang={lang} currentUser={currentUser} kitchenTracking={kitchenTracking} setKitchenTracking={setKitchenTracking}/>;

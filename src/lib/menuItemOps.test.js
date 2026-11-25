@@ -60,7 +60,7 @@ vi.mock('./supabase.js', () => ({
   },
 }));
 
-const { filterAutoSeedable, loadPackageDefaultItems } = await import('./menuItemOps.js');
+const { filterAutoSeedable, loadPackageDefaultItems, computePackageSwitchDiff } = await import('./menuItemOps.js');
 
 const ITEMS_CONFIG = {
   itemsTable: 'event_items', itemsFk: 'event_id', itemsFkValue: 'EVT-1',
@@ -208,5 +208,68 @@ describe('loadPackageDefaultItems', () => {
     expect(updateCall.fields).toEqual({ event_items_initialized: true });
     expect(updateCall.col).toBe('id');
     expect(updateCall.value).toBe('EVT-1');
+  });
+});
+
+// Tests for the Dashboard.jsx package-switch reseed decision logic itself —
+// see computePackageSwitchDiff's own header comment for the "old package
+// stuff bleeding into the new package" bug this exists to close. A gap an
+// adversarial review flagged: this logic previously lived inline inside
+// Dashboard.jsx's syncEventItemsOnPackageChange with no test at all.
+describe('computePackageSwitchDiff', () => {
+  beforeEach(() => {
+    setDishMaster({});
+    delete MENU_PACKAGE_NO_AUTO_OVERRIDES[PKG_NAME];
+    noAutoSectionIds = [];
+  });
+
+  function item(name, isAddon) { return { dish_name: name, is_addon: !!isAddon }; }
+
+  it('THE BLEED BUG ITSELF: a dish common to the OLD and NEW package raw dish lists, but no-auto-select in the new package, is removed — not kept just because it shares a name with something the new package also lists', async () => {
+    // Exercises the real filterAutoSeedable too, not just reasoned about —
+    // "Sweet Corn Soup" is in both packages' raw lists (simulated by the
+    // caller already knowing that; filterAutoSeedable only sees the NEW
+    // package's own dish list + its own no_auto_select_overrides), but the
+    // NEW package has it flagged "never auto-select here".
+    setDishMaster({ 'Sweet Corn Soup': { is_active: true }, 'Paneer Tikka': { is_active: true } });
+    MENU_PACKAGE_NO_AUTO_OVERRIDES[PKG_NAME] = { 'Sweet Corn Soup': true };
+    const seedDishes = await filterAutoSeedable(['Sweet Corn Soup', 'Paneer Tikka'], PKG_NAME);
+    expect(seedDishes).toEqual(['Paneer Tikka']); // confirms the premise: the new package's own filtered defaults exclude it
+
+    const existing = [item('Sweet Corn Soup'), item('Paneer Tikka')]; // both package-sourced, both already selected from the OLD package
+    const { toRemove, toAdd } = computePackageSwitchDiff(existing, seedDishes);
+    expect(toRemove).toEqual(['Sweet Corn Soup']); // the bleed: removed, not kept
+    expect(toAdd).toEqual([]); // Paneer Tikka already present, not re-added
+  });
+
+  it('a genuine custom add-on survives a package switch even though it is not in the new package default set at all', () => {
+    const existing = [item('Paneer Tikka'), item('Chef Special Platter', true)];
+    const { toRemove } = computePackageSwitchDiff(existing, ['Paneer Tikka']);
+    expect(toRemove).toEqual([]); // the add-on is NOT removed
+  });
+
+  it('an add-on with is_addon null/undefined (a pre-column legacy row) is treated as package-sourced, NOT as a protected add-on', () => {
+    const existing = [{ dish_name: 'Old Legacy Dish' }]; // is_addon entirely absent
+    const { toRemove } = computePackageSwitchDiff(existing, ['Paneer Tikka']);
+    expect(toRemove).toEqual(['Old Legacy Dish']);
+  });
+
+  it('adds a new package dish not yet present, and never re-adds (or duplicates) one already present as an add-on under the same name', () => {
+    const existing = [item('Chef Special Platter', true)];
+    const { toAdd } = computePackageSwitchDiff(existing, ['Chef Special Platter', 'Dal Makhani']);
+    expect(toAdd).toEqual(['Dal Makhani']);
+  });
+
+  it('a menu that already exactly matches the new seed set does nothing', () => {
+    const existing = [item('Paneer Tikka'), item('Dal Makhani')];
+    const { toRemove, toAdd } = computePackageSwitchDiff(existing, ['Paneer Tikka', 'Dal Makhani']);
+    expect(toRemove).toEqual([]);
+    expect(toAdd).toEqual([]);
+  });
+
+  it('empty/null existingItems or seedDishes never throws', () => {
+    expect(computePackageSwitchDiff([], [])).toEqual({ toRemove: [], toAdd: [] });
+    expect(computePackageSwitchDiff(null, null)).toEqual({ toRemove: [], toAdd: [] });
+    expect(computePackageSwitchDiff(undefined, undefined)).toEqual({ toRemove: [], toAdd: [] });
   });
 });

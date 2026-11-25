@@ -2,8 +2,8 @@
 // header in kitchenDishKey.js for why this exists (three broken readers
 // across Dashboard.jsx/DeptView.jsx, each using a different wrong key shape).
 
-import { describe, it, expect } from 'vitest';
-import { kitchenDishKey, kitchenDishState, isKitchenDishReady, kitchenTrackableDishes, isExcludedFromKitchenTracking, kitchenMenuArr, dishesTrackedByEvents, combinedBucketAfterPartialReset, clearDishEntryForRemoval } from './kitchenDishKey.js';
+import { describe, it, expect, vi } from 'vitest';
+import { kitchenDishKey, kitchenDishState, isKitchenDishReady, kitchenTrackableDishes, isExcludedFromKitchenTracking, kitchenMenuArr, dishesTrackedByEvents, combinedBucketAfterPartialReset, clearDishEntryForRemoval, clearKitchenTrackingForRemovedDishes } from './kitchenDishKey.js';
 import { RECIPE_DB } from '../data/recipeData.js';
 import { MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 
@@ -508,5 +508,58 @@ describe('clearDishEntryForRemoval', () => {
     expect(clearDishEntryForRemoval(null)).toEqual({});
     expect(clearDishEntryForRemoval(undefined)).toEqual({});
     expect(clearDishEntryForRemoval({})).toEqual({});
+  });
+});
+
+// Pulled out of EventMenuBuilderView.jsx (its own former private copy) so a
+// second caller (Dashboard.jsx's package-switch reseed) doesn't duplicate it
+// — now directly testable as a pure function of its three arguments, with no
+// component/React-effect harness needed.
+describe('clearKitchenTrackingForRemovedDishes', () => {
+  it('clears a removed dish\'s tracked entry via clearDishEntryForRemoval, leaving other dishes/events untouched', () => {
+    const prev = {
+      'EVT-1': {
+        'EVT-1|Paneer Tikka': { ready: true, readyAt: '10:00am' },
+        'EVT-1|Dal Makhani': { ready: true },
+      },
+      'EVT-2': { 'EVT-2|Paneer Tikka': { ready: true } },
+    };
+    let next;
+    clearKitchenTrackingForRemovedDishes((updater) => { next = updater(prev); }, 'EVT-1', ['Paneer Tikka']);
+    expect(next['EVT-1']['EVT-1|Paneer Tikka']).toEqual({ ready: null, readyAt: null });
+    expect(next['EVT-1']['EVT-1|Dal Makhani']).toEqual({ ready: true }); // untouched
+    expect(next['EVT-2']).toBe(prev['EVT-2']); // a different event's row is a completely untouched reference
+  });
+
+  it('clears multiple removed dishes in one call', () => {
+    const prev = { 'EVT-1': { 'EVT-1|A': { ready: true }, 'EVT-1|B': { ready: true }, 'EVT-1|C': { ready: true } } };
+    let result;
+    clearKitchenTrackingForRemovedDishes((updater) => { result = updater(prev); }, 'EVT-1', ['A', 'B']);
+    expect(result['EVT-1']['EVT-1|A']).toEqual({ ready: null });
+    expect(result['EVT-1']['EVT-1|B']).toEqual({ ready: null });
+    expect(result['EVT-1']['EVT-1|C']).toEqual({ ready: true }); // not in the removed list — untouched
+  });
+
+  it('returns the EXACT SAME prev reference (no re-render) when none of the named dishes were ever tracked for this event', () => {
+    const prev = { 'EVT-1': { 'EVT-1|Paneer Tikka': { ready: true } } };
+    let result;
+    clearKitchenTrackingForRemovedDishes((updater) => { result = updater(prev); }, 'EVT-1', ['Some Other Dish']);
+    expect(result).toBe(prev);
+  });
+
+  it('is a no-op (never calls setKitchenTracking) when setKitchenTracking is missing, names is empty/null, or eventId is missing', () => {
+    const setKitchenTracking = vi.fn();
+    clearKitchenTrackingForRemovedDishes(null, 'EVT-1', ['Paneer Tikka']); // no setter at all — must not throw
+    clearKitchenTrackingForRemovedDishes(setKitchenTracking, 'EVT-1', []);
+    clearKitchenTrackingForRemovedDishes(setKitchenTracking, 'EVT-1', null);
+    clearKitchenTrackingForRemovedDishes(setKitchenTracking, null, ['Paneer Tikka']);
+    expect(setKitchenTracking).not.toHaveBeenCalled();
+  });
+
+  it('handles an event with no existing tracking row at all without throwing', () => {
+    const prev = {};
+    let result;
+    clearKitchenTrackingForRemovedDishes((updater) => { result = updater(prev); }, 'EVT-1', ['Paneer Tikka']);
+    expect(result).toBe(prev);
   });
 });

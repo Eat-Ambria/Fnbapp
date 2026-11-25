@@ -68,6 +68,42 @@ export async function filterAutoSeedable(dishNames, pkgName) {
   });
 }
 
+// The decision logic inside Dashboard.jsx's syncEventItemsOnPackageChange
+// (runs when an event's menu package is switched) — pulled out as a pure
+// function so it's independently testable without mocking supabase/DB I/O,
+// same reason loadPackageDefaultItems' own reset logic lives here instead
+// of inline in a component.
+//
+// `existingItems`: the event's CURRENT event_items rows ({dish_name,
+// is_addon}). `seedDishes`: the NEW package's already-filterAutoSeedable-
+// filtered default dish list. Returns { toRemove, toAdd } (dish name
+// arrays) — the caller does the actual delete/insert.
+//
+// toRemove is every NON-add-on existing item not in `seedDishes` — a dish
+// survives a package switch only because the NEW package itself still
+// wants it, never merely because it happened to share a name with
+// something the OLD package had (found by user report, 2026-11-25: a dish
+// common to both packages' raw dish lists used to always survive a switch,
+// even a no-auto-select pick — Soup-Station-style — the new package never
+// actually defaults to on its own: "old package stuff" bleeding into the
+// newly assigned package). A genuine custom add-on (`is_addon:true` — a
+// one-off dish added beyond any package, `null`/`undefined` from an older
+// row treated the same as `false`, i.e. package-sourced) is a separate,
+// package-independent concern and is ALWAYS preserved across a switch.
+//
+// toAdd is every seed dish not already present AT ALL (add-on or not) —
+// a dish that's already there as an add-on is left as that add-on row,
+// never duplicated.
+export function computePackageSwitchDiff(existingItems, seedDishes) {
+  var seedSet = {}; (seedDishes || []).forEach(function(d){ seedSet[d] = true; });
+  var existingNames = {}; (existingItems || []).forEach(function(r){ existingNames[r.dish_name] = true; });
+  var toRemove = (existingItems || [])
+    .filter(function(r){ return !r.is_addon && !seedSet[r.dish_name]; })
+    .map(function(r){ return r.dish_name; });
+  var toAdd = (seedDishes || []).filter(function(d){ return !existingNames[d]; });
+  return { toRemove: toRemove, toAdd: toAdd };
+}
+
 // OPTIMISTIC (state applied before the DB call resolves) — matches both
 // files' existing toggleDish. Throws on DB error; caller catches, refetches
 // via its own loadItems(), and shows its own message.

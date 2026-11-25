@@ -266,6 +266,34 @@ export function clearDishEntryForRemoval(oldEntry) {
   return result;
 }
 
+// Shared `setKitchenTracking` updater for "these dish names just left this
+// event's menu, clear whatever kitchen_tracking progress they had" — pulled
+// out of EventMenuBuilderView.jsx (its own former private copy) so a SECOND
+// caller (Dashboard.jsx's package-switch reseed) doesn't have to duplicate
+// it. Pure function of (setKitchenTracking, eventId, names) — no component-
+// local state needed: no-ops per-name when nothing was ever tracked for it
+// (bev/frt dishes, or a dish this event never actually progressed), and
+// no-ops entirely (not even a re-render) when NOTHING in `names` had an
+// entry, same as before this was shared.
+export function clearKitchenTrackingForRemovedDishes(setKitchenTracking, eventId, names) {
+  if (!setKitchenTracking || !names || names.length === 0 || !eventId) return;
+  setKitchenTracking(function (prev) {
+    var evRow = (prev && prev[eventId]) || {};
+    var nextEvRow = null;
+    names.forEach(function (dishName) {
+      var key = kitchenDishKey(eventId, dishName);
+      var oldEntry = evRow[key];
+      if (!oldEntry) return;
+      if (!nextEvRow) nextEvRow = Object.assign({}, evRow);
+      nextEvRow[key] = clearDishEntryForRemoval(oldEntry);
+    });
+    if (!nextEvRow) return prev;
+    var next = Object.assign({}, prev);
+    next[eventId] = nextEvRow;
+    return next;
+  });
+}
+
 // Resetting one (but not all) of a day's functions deletes that function's
 // own kitchen_tracking row, but the shared "__combined_<day>" bucket is
 // deliberately left alone (wiping it on a PARTIAL reset would also erase the

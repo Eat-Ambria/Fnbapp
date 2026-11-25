@@ -13,11 +13,11 @@ import { MenuEditor } from './MenuEditor.jsx';
 import DishMappingModal from './DishMappingModal.jsx';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, describeEventMenu } from '../data/menuPackages.js';
 import { findRecipeForDish, resolveDishStore, isDishNoSopMarked } from '../data/recipeData.js';
-import { isKitchenDishReady, kitchenTrackableDishes } from '../lib/kitchenDishKey.js';
+import { isKitchenDishReady, kitchenTrackableDishes, clearKitchenTrackingForRemovedDishes } from '../lib/kitchenDishKey.js';
 import { EVENT_VENUES } from '../data/staffData.js';
 import { logActivity } from './ActivityLog.jsx';
 import { supabase } from '../lib/supabase.js';
-import { filterAutoSeedable } from '../lib/menuItemOps.js';
+import { filterAutoSeedable, computePackageSwitchDiff } from '../lib/menuItemOps.js';
 import { overridesWithoutOldPackageLocalIds } from '../lib/menuSectionOverrides.js';
 
 const FIELD_LABEL = {...type.label,fontSize:10.5,letterSpacing:.7,color:K.hdrMeta,marginBottom:5};
@@ -109,7 +109,7 @@ function Pager({page,pages,onPage,from,shown,total,T2}) {
   );
 }
 
-function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,empDb=[]}) {
+function Dashboard({events,setEvents,kitchenTracking,setKitchenTracking,lang="en",currentUser=null,empDb=[]}) {
   const T2 = s => T(s, lang);
   const isMobile = useIsMobile();
   const [fyTipOpen, setFyTipOpen] = useState(false); // hover popover on the FY total tile
@@ -328,12 +328,21 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
   // Switching the menu package here used to only ever touch events.menu/
   // menu_package (the Kitchen-only mirror) — event_items, the actual source
   // of truth Booked Functions' Items tab reads, never heard about it, so the
-  // new package silently never showed up there. Sync it the same way
-  // Booked Functions' own "Load package defaults" does: additive for dishes
-  // the new package wants and doesn't have yet, and also drop whatever
-  // belonged ONLY to the old package and isn't in the new one — anything the
-  // admin added beyond the package (add-ons, one-off custom dishes) was
-  // never part of the old package's list either, so it's always left alone.
+  // new package silently never showed up there.
+  //
+  // RESEEDS the package-sourced portion of the menu from scratch against the
+  // NEW package's own filtered defaults (user-requested fix, 2026-11-25) —
+  // a dish survives a package switch only because the NEW package itself
+  // still wants it, never merely because it happened to share a name with
+  // something the OLD package had. The original version only dropped a dish
+  // that was EXCLUSIVELY in the old package's raw dish list — so a dish
+  // common to both packages' raw lists always survived, even one that's a
+  // no-auto-select pick (Soup-Station-style) the new package never actually
+  // defaults to on its own: "old package stuff" bleeding into the newly
+  // assigned package. Genuine custom add-ons (`is_addon:true` — a one-off
+  // dish the admin added beyond any package) are a separate, package-
+  // independent concern and are ALWAYS preserved across a switch, exactly as
+  // before — they were never part of "old package stuff" to begin with.
   async function syncEventItemsOnPackageChange(eventId, prevPkgName, nextPkgName){
     const newDishes = MENU_PACKAGES[nextPkgName]||[];
     if(newDishes.length===0) return;
@@ -342,7 +351,7 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
       // blockIfMenuLocked) — don't silently rewrite it out from under that lock.
       const {data:fpRow} = await supabase.from('event_function_plans').select('locked').eq('event_id',eventId).maybeSingle();
       if(fpRow&&fpRow.locked) return;
-      const {data:rows,error} = await supabase.from('event_items').select('dish_name').eq('event_id',eventId);
+      const {data:rows,error} = await supabase.from('event_items').select('dish_name,is_addon').eq('event_id',eventId);
       if(error) throw error;
       const existing = rows||[];
       // A per-event sectionOverrides tag can point at the OLD package's own
@@ -364,22 +373,17 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
         const {error:ovErr} = await supabase.from('events').update({menu_section_overrides:overridesResult.overrides}).eq('id',eventId);
         if(ovErr) throw ovErr;
       }
-      const oldDishes = new Set(MENU_PACKAGES[prevPkgName]||[]);
-      const newSet = new Set(newDishes);
-      const existingNames = new Set(existing.map(r=>r.dish_name));
-      const toRemove = existing.filter(r=>oldDishes.has(r.dish_name)&&!newSet.has(r.dish_name)).map(r=>r.dish_name);
+      // Soup-Station-style "pick any 2-3 of these 8-10" sections never get
+      // bulk-added as defaults when a package is first assigned/switched —
+      // same filterAutoSeedable policy EventMenuBuilderView's initial seed
+      // and "Load defaults" already follow.
+      const seedDishes = await filterAutoSeedable(newDishes, nextPkgName);
+      const {toRemove,toAdd} = computePackageSwitchDiff(existing, seedDishes);
       if(toRemove.length){
         const {error:delErr} = await supabase.from('event_items').delete().eq('event_id',eventId).in('dish_name',toRemove);
         if(delErr) throw delErr;
       }
       const remainingCount = existing.length-toRemove.length;
-      // Soup-Station-style "pick any 2-3 of these 8-10" sections never get
-      // bulk-added as defaults when a package is first assigned/switched —
-      // same filterAutoSeedable policy EventMenuBuilderView's initial seed
-      // and "Load defaults" already follow; this was the one remaining path
-      // that bypassed it (new/changed package -> event_items written here
-      // directly, not through either of those).
-      const toAdd = (await filterAutoSeedable(newDishes, nextPkgName)).filter(d=>!existingNames.has(d));
       if(toAdd.length){
         const insRows = toAdd.map((d,i)=>({event_id:eventId,dish_name:d,is_addon:false,ordering:remainingCount+i}));
         const {error:insErr} = await supabase.from('event_items').insert(insRows);
@@ -387,6 +391,13 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
       }
       if(toRemove.length||toAdd.length){
         await supabase.from('events').update({event_items_initialized:true}).eq('id',eventId);
+        // Same orphaned-kitchen_tracking-rows cleanup this session's
+        // Investigation 2 fix established for every other dish-removal path
+        // (EventMenuBuilderView's toggleDish/removeWholeSection/
+        // loadPackageDefaults) — without it, re-switching back to a package
+        // that still serves one of these dishes would resurrect its old
+        // ready/step progress from before this switch, looking already done.
+        clearKitchenTrackingForRemovedDishes(setKitchenTracking,eventId,toRemove);
       }
     }catch(e){
       console.error('[Dashboard] syncEventItemsOnPackageChange failed:',e);
