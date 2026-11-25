@@ -213,7 +213,7 @@ function Dashboard({events,setEvents,kitchenTracking,setKitchenTracking,lang="en
   const [closureEv, setClosureEv] = useState(null);
   const [closureRemark, setClosureRemark] = useState("");
   const [closureRating, setClosureRating] = useState("");
-  const [noSopOpen, setNoSopOpen] = useState(true); // the no-SOP alert below starts expanded — it's meant to be seen, not clicked open
+  const [noSopOpen, setNoSopOpen] = useState(false); // collapsed by default — the count badge + header is enough to notice it; click to expand
   const [mapDishName, setMapDishName] = useState(''); // dish currently open in DishMappingModal, from the no-SOP banner's "Map" button
   const [form, setForm] = useState({guest:"",venue:"Ambria Pushpanjali",date:"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done",external_caterer:false,external_caterer_name:""});
   // Snapshot of `form` as it was when the Edit modal opened (openEdit sets
