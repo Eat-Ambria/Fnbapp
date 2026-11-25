@@ -175,6 +175,22 @@ export function useMenuItemGrouping(params) {
     return out;
   }, [sections, activeDept, catSubsByParent, allDishes]);
 
+  // Same picker, but as a two-level tree (top-level section, then its
+  // subsections) for SectionPillPicker — a dept can route dozens of
+  // subsections and the old flat "— Name" list read as one long, confusing
+  // row. Kept separate from catalogueSectionOptions above since that flat
+  // shape is still used for id/label lookups elsewhere.
+  var catalogueSectionGroups = useMemo(function(){
+    var countFor = function(id){ return allDishes.filter(function(d){ return d.section_id === id; }).length; };
+    var deptTop = sections.filter(function(s){ return !s.parent_section_id && (s.sales_dept || 'kit') === activeDept; });
+    return deptTop.map(function(s){
+      return {
+        id: s.id, name: s.name, count: countFor(s.id),
+        subs: (catSubsByParent[s.id] || []).map(function(sub){ return { id: sub.id, name: sub.name, count: countFor(sub.id) }; }),
+      };
+    });
+  }, [sections, activeDept, catSubsByParent, allDishes]);
+
   // Template dishes AND actually-selected dishes NOT present in dishes_master.
   // Render in Extras with ⚠ so sales/kitchen can see catalogue mismatches
   // without losing the item. The selected-dishes half matters on its own: a
@@ -839,6 +855,7 @@ export function useMenuItemGrouping(params) {
     sectionAddonPriceMap: sectionAddonPriceMap,
     catSubsByParent: catSubsByParent,
     catalogueSectionOptions: catalogueSectionOptions,
+    catalogueSectionGroups: catalogueSectionGroups,
     dishNameToPkgDept: dishNameToPkgDept,
     sectionOverrideDept: sectionOverrideDept,
     deptCounts: deptCounts,

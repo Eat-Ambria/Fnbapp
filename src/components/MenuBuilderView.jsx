@@ -20,6 +20,7 @@ import { K, type } from '../utils/theme.js';
 import { ripple } from '../utils/ripple.js';
 import { Icon } from './Icons.jsx';
 import { KButton, KToast } from './KitchenUI.jsx';
+import { SectionPillPicker } from './SectionPillPicker.jsx';
 import { useIsMobile } from '../utils/useIsMobile.js';
 
 export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = null }) {
@@ -431,6 +432,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   var allDishes = grouping.allDishes;
   var catSubsByParent = grouping.catSubsByParent;
   var catalogueSectionOptions = grouping.catalogueSectionOptions;
+  var catalogueSectionGroups = grouping.catalogueSectionGroups;
   var templateSet = grouping.templateSet;
   var selectedSet = grouping.selectedSet;
   var focSet = grouping.focSet;
@@ -711,6 +713,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   onAddExistingDish={addExistingDish}
                   allDishes={allDishes}
                   catalogueSectionOptions={catalogueSectionOptions}
+                  catalogueSectionGroups={catalogueSectionGroups}
                   onAddSectionFromLibrary={addSectionFromLibrary}
                   onCreateCustomSection={createCustomSection}
                   onRemoveSection={removeAdHocSection}
@@ -862,7 +865,7 @@ function LiveTotalRows({ T2, deptCounts, deptAddonTotal, grandTotal }) {
 // ═══════════════════════════════════════════════════════════════
 // ITEMS TAB — works for any item-having dept (kit/bev/bak/frt)
 // ═══════════════════════════════════════════════════════════════
-function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, focSet, onToggleFoc, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, onAddExistingDish, allDishes, catalogueSectionOptions, onAddSectionFromLibrary, onCreateCustomSection, onRemoveSection, onRemoveWholeSection }) {
+function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, focSet, onToggleFoc, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, onAddExistingDish, allDishes, catalogueSectionOptions, catalogueSectionGroups, onAddSectionFromLibrary, onCreateCustomSection, onRemoveSection, onRemoveWholeSection }) {
   var isMobile = useIsMobile();
   var deptTotal = deptCounts ? deptCounts.total : 0;
   // Read only by the template summary bar, which is commented out further down.
@@ -971,14 +974,19 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
   function sayFail(title, err){ setTabToast({ tone: 'danger', title: title, body: String((err && err.message) || err || '') }); }
   var [pendingCustom, setPendingCustom] = useState(null); // { name, catId, sectionId } | null
   var [customSaving, setCustomSaving] = useState(false);
-  var placementOptions = useMemo(function(){
+  // Tree form for SectionPillPicker: top-level pill first, its subsections
+  // (if any) only shown once that pill is picked — a flat breadcrumb row
+  // ("Beverages › Aerated Drinks" etc., one pill per subsection of every
+  // section) read as one long, confusing list.
+  var placementGroups = useMemo(function(){
     var out = [];
     var seen = {};       // by id
     var seenTopNames = {}; // by normalized TOP-LEVEL pill name
     function norm(s){ return (s || '').toLowerCase().trim(); }
     groupedByCat.forEach(function(g){
-      out.push({ id: g.id, label: g.name }); seen[g.id] = true; seenTopNames[norm(g.name)] = true;
-      (g.subGroups || []).forEach(function(sg){ out.push({ id: sg.id, label: g.name + ' › ' + sg.name }); seen[sg.id] = true; });
+      var subs = (g.subGroups || []).map(function(sg){ seen[sg.id] = true; return { id: sg.id, name: sg.name }; });
+      out.push({ id: g.id, name: g.name, subs: subs });
+      seen[g.id] = true; seenTopNames[norm(g.name)] = true;
     });
     // Also offer every catalogue section routed to this dept that isn't
     // already a pill in THIS menu — a custom section someone created in a
@@ -1004,7 +1012,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
       if (seen[o.id]) return;
       if (seenTopNames[norm(o.label)]) return;
       seen[o.id] = true;
-      out.push({ id: o.id, label: o.label });
+      out.push({ id: o.id, name: o.label, subs: [] });
     });
     return out;
   }, [groupedByCat, catalogueSectionOptions]);
@@ -1490,22 +1498,12 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
               </>
             )}
 
-            {placementOptions.length > 0 && (
+            {placementGroups.length > 0 && (
               <>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Menu section")}</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
-                  {placementOptions.map(function(o){
-                    var active = pendingCustom.sectionId === o.id;
-                    return (
-                      <button key={o.id} onClick={function(){ setPendingCustom(function(p){ return { ...p, sectionId: active ? "" : o.id }; }); }}
-                        style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
-                          background: active ? C.wine : "transparent", color: active ? "#fff" : C.text,
-                          border: "1px solid " + (active ? C.wine : C.border) }}>
-                        {o.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                <SectionPillPicker groups={placementGroups} value={pendingCustom.sectionId}
+                  onChange={function(id){ setPendingCustom(function(p){ return { ...p, sectionId: id }; }); }}
+                  T2={T2} accent={C.wine} />
               </>
             )}
 
@@ -1534,29 +1532,19 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>{T2("Gets its own pill named after the catalogue section, tagged as add-ons — nothing is auto-selected. Pick a Menu section below only if you'd rather merge it into an existing pill instead.")}</div>
 
             <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Catalogue section")}</div>
-            {(!catalogueSectionOptions || catalogueSectionOptions.length === 0) && (
+            {(!catalogueSectionGroups || catalogueSectionGroups.length === 0) && (
               <div style={{ padding: "10px 12px", borderRadius: 8, background: C.bg, fontSize: 12, color: C.muted, marginBottom: 16 }}>{T2("No catalogue sections routed to this department.")}</div>
             )}
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
-              {(catalogueSectionOptions || []).map(function(o){
-                var active = pendingSection.catSectionId === o.id;
-                return (
-                  <button key={o.id} onClick={function(){ setPendingSection(function(p){
-                      // Defaults the placement to a brand-new pill matching this
-                      // catalogue section — NOT whatever tab happens to be active
-                      // — so picking "Pre Dining Live" doesn't silently dump its
-                      // dishes into an unrelated already-open pill. Re-picking a
-                      // "Menu section" pill below still overrides this.
-                      return { ...p, catSectionId: o.id, targetId: o.id };
-                    }); }}
-                    style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
-                      background: active ? C.wine : "transparent", color: active ? "#fff" : C.text,
-                      border: "1px solid " + (active ? C.wine : C.border) }}>
-                    {o.label} <span style={{ opacity: 0.7 }}>({o.count})</span>
-                  </button>
-                );
-              })}
-            </div>
+            {catalogueSectionGroups && catalogueSectionGroups.length > 0 && (
+              <SectionPillPicker groups={catalogueSectionGroups} value={pendingSection.catSectionId}
+                // Defaults the placement to a brand-new pill matching this
+                // catalogue section — NOT whatever tab happens to be active —
+                // so picking "Pre Dining Live" doesn't silently dump its
+                // dishes into an unrelated already-open pill. Re-picking a
+                // "Menu section" pill below still overrides this.
+                onChange={function(id){ setPendingSection(function(p){ return { ...p, catSectionId: id, targetId: id }; }); }}
+                T2={T2} accent={C.wine} allowClear={false} />
+            )}
 
             {onCreateCustomSection && (
               <div style={{ marginBottom: 18, paddingTop: 14, borderTop: "1px dashed " + C.border }}>
@@ -1576,22 +1564,12 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
               </div>
             )}
 
-            {placementOptions.length > 0 && (
+            {placementGroups.length > 0 && (
               <>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Merge into existing menu section")} <span style={{ fontWeight: 400, textTransform: "none", color: C.faint }}>({T2("optional — this event only")})</span></div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
-                  {placementOptions.map(function(o){
-                    var active = pendingSection.targetId === o.id;
-                    return (
-                      <button key={o.id} onClick={function(){ setPendingSection(function(p){ return { ...p, targetId: active ? "" : o.id }; }); }}
-                        style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
-                          background: active ? C.wine : "transparent", color: active ? "#fff" : C.text,
-                          border: "1px solid " + (active ? C.wine : C.border) }}>
-                        {o.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                <SectionPillPicker groups={placementGroups} value={pendingSection.targetId}
+                  onChange={function(id){ setPendingSection(function(p){ return { ...p, targetId: id }; }); }}
+                  T2={T2} accent={C.wine} />
               </>
             )}
 

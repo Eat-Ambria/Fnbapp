@@ -9,6 +9,7 @@ import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, isMenuPackageSectionsHydrated } f
 import { resolveOverrideToCatalogueSectionId, packageCatalogueLinkFor } from '../lib/catalogueSection.js';
 import { supabase } from '../lib/supabase.js';
 import { getEventItemsByDept } from '../lib/eventItems.js';
+import { SectionPillPicker } from './SectionPillPicker.jsx';
 
 // pkgName/sectionOverrides/onSectionOverridesChange are optional — when the
 // event this menu belongs to is tied to a package, "Selected menu" groups by
@@ -180,10 +181,13 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   // grouping/picking purposes. "Main Course" itself and each of its
   // subsections all become their own addressable group.
   var pkgGroups = null;
+  var pkgSectionTree = null;
   if (pkgSections && pkgSections.length > 0) {
     pkgGroups = [];
+    pkgSectionTree = [];
     pkgSections.forEach(function(sec) {
       pkgGroups.push({ id: sec.id, name: sec.name, sop_category: sec.sop_category });
+      pkgSectionTree.push({ id: sec.id, name: sec.name, subs: (sec.subsections || []).map(function(sub) { return { id: sub.id, name: sub.name }; }) });
       (sec.subsections || []).forEach(function(sub) {
         pkgGroups.push({ id: sub.id, name: sec.name + ' › ' + sub.name, sop_category: sec.sop_category });
       });
@@ -648,22 +652,12 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
               })}
             </div>
 
-            {pkgGroups && (
+            {pkgSectionTree && (
               <>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Menu section")} <span style={{ fontWeight: 400, textTransform: "none", color: C.faint }}>({T2("this event only")})</span></div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
-                  {pkgGroups.map(function(g) {
-                    var active = pendingCustom.sectionId === g.id;
-                    return (
-                      <button key={g.id} onClick={function() { setPendingCustom(function(p) { return { ...p, sectionId: active ? "" : g.id }; }); }}
-                        style={{ padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
-                          background: active ? C.wine : "transparent", color: active ? "#fff" : C.text,
-                          border: "1px solid " + (active ? C.wine : C.border) }}>
-                        {g.name}
-                      </button>
-                    );
-                  })}
-                </div>
+                <SectionPillPicker groups={pkgSectionTree} value={pendingCustom.sectionId}
+                  onChange={function(id) { setPendingCustom(function(p) { return { ...p, sectionId: id }; }); }}
+                  T2={T2} accent={C.wine} />
               </>
             )}
 
