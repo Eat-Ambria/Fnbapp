@@ -327,6 +327,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   var grandTotal = grouping.grandTotal;
   var deptDishes = grouping.deptDishes;
   var templateDishesInDept = grouping.templateDishesInDept;
+  var visibleDishes = grouping.visibleDishes;
   var catalogueTree = grouping.catalogueTree;
   var groupedByCat = grouping.groupedByCat;
   var groupedBySection = grouping.groupedBySection;
@@ -1860,6 +1861,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
                   dietFilter={dietFilter} setDietFilter={setDietFilter}
                   showAddons={showAddons} setShowAddons={setShowAddons}
                   deptDishes={deptDishes}
+                  visibleDishes={visibleDishes}
                   groupedByCat={groupedByPkgSection || groupedBySection || groupedByCat}
                   catalogueTree={catalogueTree}
                   templateSet={templateSet}

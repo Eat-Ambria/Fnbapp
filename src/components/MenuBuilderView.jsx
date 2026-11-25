@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
+import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, getAltGroupOverride } from '../data/menuPackages.js';
 import { detectPackageDiet } from '../utils/helpers.js';
 import { RECIPE_DB, createCustomDishInLibrary, findRecipeForDish, isDishNoSopMarked } from '../data/recipeData.js';
 import { resolveOverrideToCatalogueSectionId, normalizeOverrideIds } from '../lib/catalogueSection.js';
@@ -441,6 +441,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   var grandTotal = grouping.grandTotal;
   var deptDishes = grouping.deptDishes;
   var templateDishesInDept = grouping.templateDishesInDept;
+  var visibleDishes = grouping.visibleDishes;
   var catalogueTree = grouping.catalogueTree;
   var groupedByCat = grouping.groupedByCat;
   var groupedBySection = grouping.groupedBySection;
@@ -694,6 +695,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   dietFilter={dietFilter} setDietFilter={setDietFilter}
                   showAddons={showAddons} setShowAddons={setShowAddons}
                   deptDishes={deptDishes}
+                  visibleDishes={visibleDishes}
                   groupedByCat={groupedByPkgSection || groupedBySection || groupedByCat}
                   catalogueTree={catalogueTree}
                   templateSet={templateSet}
@@ -867,7 +869,7 @@ function LiveTotalRows({ T2, deptCounts, deptAddonTotal, grandTotal }) {
 // ═══════════════════════════════════════════════════════════════
 // ITEMS TAB — works for any item-having dept (kit/bev/bak/frt)
 // ═══════════════════════════════════════════════════════════════
-function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, focSet, onToggleFoc, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, onAddExistingDish, onRetagDish, sectionOverrides, allDishes, catalogueSectionOptions, catalogueSectionGroups, onAddSectionFromLibrary, onCreateCustomSection, onRemoveSection, onRemoveWholeSection }) {
+function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, visibleDishes, groupedByCat, catalogueTree, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, focSet, onToggleFoc, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, onAddExistingDish, onRetagDish, sectionOverrides, allDishes, catalogueSectionOptions, catalogueSectionGroups, onAddSectionFromLibrary, onCreateCustomSection, onRemoveSection, onRemoveWholeSection }) {
   var isMobile = useIsMobile();
   var deptTotal = deptCounts ? deptCounts.total : 0;
   // Read only by the template summary bar, which is commented out further down.
@@ -882,6 +884,80 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
   // regardless of where it lives.
   var [activeSectionId, setActiveSectionId] = useState(null);
   var isSearching = !!(searchQ || '').trim();
+
+  // ── Either-or ("alternative group") pairs ───────────────────────────────
+  // dishes_master.alt_group (per-package overridable via DishMappingModal's
+  // "Alternative group" field — e.g. "Steam Rice" and "Jeera Rice" both
+  // tagged "rice") marks dishes that are really ONE choice, not two separate
+  // add-ons. Surfaced as its own pill, ahead of the normal section pills, so
+  // the team picks one before touching the rest of this dept's menu.
+  // MENU_PACKAGE_ALT_GROUP_OVERRIDES is a mutable module-level object (see
+  // menuPackages.js), so a live edit from DishMappingModal needs this bump to
+  // be picked up without a reload — same pattern as MenuBuilderPreview.jsx.
+  var [altGroupVer, setAltGroupVer] = useState(0);
+  useEffect(function () {
+    function onRefresh() { setAltGroupVer(function (v) { return v + 1; }); }
+    window.addEventListener('ambria:menu-packages-refreshed', onRefresh);
+    return function () { window.removeEventListener('ambria:menu-packages-refreshed', onRefresh); };
+  }, []);
+  var pkgNameForAltGroups = templateInfo.name || '';
+  // Scoped to dishes genuinely part of THIS menu build (the package's own
+  // list, something already picked, or something already section-tagged) —
+  // NOT the full visibleDishes pool, which on a no-package event shows the
+  // whole catalogue for browsing (see useMenuItemGrouping.js's noPackage
+  // bypass). Without this narrowing, a from-scratch event would be gated on
+  // every either-or pair that exists anywhere in the catalogue for this
+  // dept, most of which nobody was ever going to touch.
+  var altGroupCandidates = useMemo(function () {
+    return (visibleDishes || []).filter(function (d) {
+      return !!templateSet[d.name] || !!selectedSet[d.name] || !!(sectionOverrides && sectionOverrides[d.name]);
+    });
+  }, [visibleDishes, templateSet, selectedSet, sectionOverrides]);
+  var altGroups = useMemo(function () {
+    var byTag = {};
+    (altGroupCandidates || []).forEach(function (d) {
+      var ov = pkgNameForAltGroups ? getAltGroupOverride(pkgNameForAltGroups, d.name) : undefined;
+      var tag = ov === undefined ? (d.alt_group || '') : ov;
+      if (!tag) return;
+      (byTag[tag] = byTag[tag] || []).push(d);
+    });
+    var out = [];
+    Object.keys(byTag).sort().forEach(function (tag) {
+      var dishes = byTag[tag];
+      if (dishes.length < 2) return; // nobody else shares the tag — not a real either-or
+      out.push({
+        id: 'altgrp:' + tag,
+        tag: tag,
+        name: dishes.map(function (d) { return d.name; }).slice().sort().join(' / '),
+        dishes: dishes,
+        resolved: dishes.some(function (d) { return !!selectedSet[d.name]; }),
+      });
+    });
+    return out;
+  // eslint-disable-next-line
+  }, [altGroupCandidates, pkgNameForAltGroups, selectedSet, altGroupVer]);
+  var pendingAltGroups = useMemo(function () {
+    return altGroups.filter(function (g) { return !g.resolved; });
+  }, [altGroups]);
+  var gated = pendingAltGroups.length > 0;
+  var [activeAltGroupId, setActiveAltGroupId] = useState(null);
+  var pendingAltGroupIds = pendingAltGroups.map(function (g) { return g.id; }).join(',');
+  useEffect(function () {
+    if (!gated) { setActiveAltGroupId(null); return; }
+    var stillPending = pendingAltGroups.some(function (g) { return g.id === activeAltGroupId; });
+    if (!stillPending) setActiveAltGroupId(pendingAltGroups[0].id);
+  // eslint-disable-next-line
+  }, [gated, pendingAltGroupIds]);
+  var activeAltGroup = altGroups.find(function (g) { return g.id === activeAltGroupId; }) || null;
+  // Render-time fallback, not a re-derivation of activeAltGroupId: the
+  // correcting effect above only runs after commit, so a render that just
+  // flipped `gated` to true (e.g. the dish that resolved a pending pair was
+  // just unticked from its own native section, not from the pill itself)
+  // would otherwise show the normal grid for one frame with no pills to
+  // navigate away from it — caught by adversarial review. Falling back to
+  // pendingAltGroups[0] directly whenever gated means the grid is always
+  // correct in the SAME render gated becomes true, with no gap to self-heal.
+  var displayAltGroup = gated ? pendingAltGroups[0] : activeAltGroup;
 
   // ── Drop a section whose dishes are all in a bigger one ──────────────
   // A package can carry both a parent section and one of its children as
@@ -1179,7 +1255,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
             template as well as the handler — without a package there are no
             defaults to load, and it used to live inside the package strip where
             that check was implicit. */}
-        {templateInfo.name && onLoadDefaults && (
+        {!gated && templateInfo.name && onLoadDefaults && (
           <KButton size="sm" icon="refresh" onClick={onLoadDefaults} disabled={!!seeding}
             title={T2("Add any package dish not already selected — never removes or duplicates existing selections")}
             style={{ padding: "10px 15px", borderRadius: K.rPill, fontSize: 13, flexShrink: 0, marginLeft: isMobile ? 0 : "auto",
@@ -1191,6 +1267,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
             flex 1 it stretched across half the page for a field that takes a
             word or two. Full-width on mobile instead — one clear row, rather
             than wrapping mid-way between the buttons either side of it. */}
+        {!gated && (
         <div style={{ position: "relative", flex: isMobile ? "1 1 100%" : "0 1 320px", minWidth: isMobile ? 0 : 190 }}>
           <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)",
             color: K.textFaint, display: "flex", pointerEvents: "none" }}>
@@ -1202,15 +1279,18 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
               border: "1px solid " + K.cardWarmLine, fontSize: 13.5, color: K.text, background: "#FFFFFF",
               boxSizing: "border-box", fontFamily: K.fontBody, outline: "none" }} />
         </div>
+        )}
         {/* Moved up onto the search row. On a row of their own they cost the
-            page a full button's height for two controls used once a session. */}
-        {onAddCustomDish && (
+            page a full button's height for two controls used once a session.
+            Hidden while an either-or pick is pending — "changing the menu
+            further" is exactly what these do. */}
+        {!gated && onAddCustomDish && (
           <KButton size="sm" icon="plus" onClick={openCustomModal}
             style={{ padding: "10px 15px", borderRadius: K.rPill, fontSize: 13, flexShrink: 0, background: "#FFFFFF", borderColor: K.cardWarmLine }}>
             {T2("Add dish")}
           </KButton>
         )}
-        {onAddSectionFromLibrary && (
+        {!gated && onAddSectionFromLibrary && (
           <KButton size="sm" icon="layers" onClick={openSectionModal}
             style={{ padding: "10px 15px", borderRadius: K.rPill, fontSize: 13, flexShrink: 0, background: "#FFFFFF", borderColor: K.cardWarmLine }}>
             {T2("Add section")}
@@ -1222,6 +1302,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
             It sits on this row now too — the filter bar it used to live on had
             nothing else left in it once the diet chips were hidden, so keeping
             it was a whole row of page height for one toggle. */}
+        {!gated && (
         <label style={{ display: "inline-flex", alignItems: "center", gap: 9, cursor: "pointer", flexShrink: 0,
           fontSize: 13, fontWeight: 600, color: K.textBody }}>
           <input type="checkbox" checked={showAddons} onChange={function(e){ setShowAddons(e.target.checked); }}
@@ -1234,6 +1315,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
           </span>
           {T2("Show add-ons only")}
         </label>
+        )}
       </div>
 
       {/* Diet chips — hidden, not deleted. The parent still owns dietFilter and
@@ -1286,8 +1368,48 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
       )}
       */}
 
+      {/* Either-or pills — always first, ahead of the normal section pills.
+          While any are unresolved, every other control in this dept is
+          hidden (see the !gated guards above and below) so the team has to
+          land on one of these before they can touch anything else. */}
+      {altGroups.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          {gated && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", marginBottom: 10,
+              borderRadius: 12, background: K.warnBg, border: "1px solid " + K.warnBorder, color: K.warn, fontSize: 13, fontWeight: 700 }}>
+              <Icon name="alert" size={16} strokeWidth={2.1} />
+              {pendingAltGroups.length === 1
+                ? T2("Pick one before continuing:") + ' ' + pendingAltGroups[0].name
+                : T2("Pick one for each of these before continuing")}
+            </div>
+          )}
+          <div className="kh-thinscroll" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+            {altGroups.map(function (g) {
+              var isActive = activeAltGroupId === g.id;
+              var isPending = !g.resolved;
+              return (
+                <button key={g.id} type="button"
+                  onClick={function () { setActiveAltGroupId(isActive && !gated ? null : g.id); }}
+                  className={"kh-secpill" + (isActive ? " is-on" : "")}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", flexShrink: 0, fontFamily: K.fontBody,
+                    padding: "11px 18px", borderRadius: 999, fontSize: 13, fontWeight: isActive ? 700 : 600,
+                    background: isActive ? (isPending ? K.warn : K.brand) : "#FFFFFF",
+                    color: isActive ? "#FFFFFF" : (isPending ? K.warn : K.textBody),
+                    border: "1px solid " + (isActive ? (isPending ? K.warn : K.brand) : (isPending ? K.warnBorder : K.cardWarmLine)),
+                    cursor: "pointer",
+                  }}>
+                  <Icon name={isPending ? "alert" : "check"} size={14} strokeWidth={2.2} />
+                  {g.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Category groups */}
-      {groupedByCat.length === 0 && (function(){
+      {!gated && groupedByCat.length === 0 && (function(){
         // V74 — If empty on this dept but the user has selections elsewhere,
         // send them to the busiest dept so they don't feel lost. Otherwise
         // fall back to the standard filter / add-on hint.
@@ -1330,8 +1452,9 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
       })()}
 
       {/* Section pills — pick one section instead of scrolling through all of them.
-          Hidden while searching, since search already spans every section. */}
-      {!isSearching && pillTree.length > 1 && (
+          Hidden while searching, since search already spans every section.
+          Hidden entirely while an either-or pick is pending (gated). */}
+      {!gated && !isSearching && pillTree.length > 1 && (
         <div className="kh-thinscroll" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 8 }}>
           {pillTree.map(function(p){
             var isActive = activeParent === p;
@@ -1353,7 +1476,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
             var hasRemoveBtn = canRemoveWhole || canRemoveAdHoc;
             return (
               <span key={p.key} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
-                <button onClick={function(){ setActiveSectionId(p.children[0].id); }}
+                <button onClick={function(){ setActiveAltGroupId(null); setActiveSectionId(p.children[0].id); }}
                   className={"kh-secpill" + (isActive ? " is-on" : "")}
                   style={{
                     display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", flexShrink: 0, fontFamily: K.fontBody,
@@ -1405,7 +1528,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
 
       {/* Second row: the active parent's subsections. Only when there is more
           than one — a parent with a single child is already the pill above. */}
-      {!isSearching && activeParent && activeParent.children.length > 1 && (
+      {!gated && !isSearching && activeParent && activeParent.children.length > 1 && (
         <div className="kh-thinscroll" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 16, paddingLeft: 14 }}>
           {activeParent.children.map(function(g){
             var isActive = g.id === activeSectionId;
@@ -1415,7 +1538,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
             var hasRemoveBtn = isAdHocRemovable || isWholeRemovable;
             return (
               <span key={g.id} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
-                <button onClick={function(){ setActiveSectionId(g.id); }}
+                <button onClick={function(){ setActiveAltGroupId(null); setActiveSectionId(g.id); }}
                   className={"kh-secpill" + (isActive ? " is-on" : "")}
                   style={{
                     display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", flexShrink: 0, fontFamily: K.fontBody,
@@ -1456,11 +1579,25 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
           })}
         </div>
       )}
-      {isSearching && groupedByCat.length > 1 && (
+      {!gated && isSearching && groupedByCat.length > 1 && (
         <div style={{ fontSize: 11, color: C.muted, marginBottom: 10, fontStyle: "italic" }}>{T2("Showing matches across all sections")}</div>
       )}
 
-      {visibleGroups.map(function(grp){
+      {/* An either-or pill (gated or voluntarily opened) replaces the normal
+          grid with just its own dishes — same DishCard, same onToggle, so
+          picking one is exactly like ticking any other dish. */}
+      {displayAltGroup ? (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ ...type.label, fontSize: 11, color: K.hdrMeta, letterSpacing: 0.6, marginBottom: 10, padding: "0 2px" }}>
+            {displayAltGroup.name} <span style={{ color: C.muted, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {displayAltGroup.dishes.length}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14 }}>
+            {displayAltGroup.dishes.map(function(d){
+              return <DishCard key={d.name} d={d} templateSet={templateSet} selectedSet={selectedSet} outsourcedSet={outsourcedSet} onToggleOutsourced={onToggleOutsourced} focSet={focSet} onToggleFoc={onToggleFoc} salesMeta={salesMeta} onToggle={onToggle} />;
+            })}
+          </div>
+        </div>
+      ) : visibleGroups.map(function(grp){
         // V86 — a package section linked to a catalogue section that itself has
         // subsections (e.g. Pass Around Snacks > Tandoori/Pan Asian/Continental)
         // renders each subsection as its own labeled cluster instead of one
