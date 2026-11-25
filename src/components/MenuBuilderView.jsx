@@ -711,6 +711,7 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
                   seeding={seeding}
                   onAddCustomDish={addCustomDish}
                   onAddExistingDish={addExistingDish}
+                  onRetagDish={saveSectionOverride}
                   allDishes={allDishes}
                   catalogueSectionOptions={catalogueSectionOptions}
                   catalogueSectionGroups={catalogueSectionGroups}
@@ -865,7 +866,7 @@ function LiveTotalRows({ T2, deptCounts, deptAddonTotal, grandTotal }) {
 // ═══════════════════════════════════════════════════════════════
 // ITEMS TAB — works for any item-having dept (kit/bev/bak/frt)
 // ═══════════════════════════════════════════════════════════════
-function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, focSet, onToggleFoc, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, onAddExistingDish, allDishes, catalogueSectionOptions, catalogueSectionGroups, onAddSectionFromLibrary, onCreateCustomSection, onRemoveSection, onRemoveWholeSection }) {
+function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddons, setShowAddons, deptDishes, groupedByCat, catalogueTree, templateSet, selectedSet, outsourcedSet, onToggleOutsourced, focSet, onToggleFoc, salesMeta, onToggle, templateInfo, deptCounts, allDeptCounts, onLoadDefaults, seeding, onAddCustomDish, onAddExistingDish, onRetagDish, allDishes, catalogueSectionOptions, catalogueSectionGroups, onAddSectionFromLibrary, onCreateCustomSection, onRemoveSection, onRemoveWholeSection }) {
   var isMobile = useIsMobile();
   var deptTotal = deptCounts ? deptCounts.total : 0;
   // Read only by the template summary bar, which is commented out further down.
@@ -1035,9 +1036,28 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
     return allDishes.find(function(d){ return d.name.toLowerCase() === customQuery; }) || null;
   // eslint-disable-next-line
   }, [customQuery, allDishes]);
+  // A dish can already be selected in this menu under its NATIVE catalogue
+  // section (e.g. Steam Rice lives in Rice Factory) while still needing to
+  // show under a different pill for THIS event (e.g. Driver Food) — that's
+  // a per-event sectionOverrides tag, never a move in the shared catalogue.
+  // Searching for an already-selected dish here used to just no-op (there
+  // was "nothing to add"); it now lets picking a Menu section below retag it.
+  var alreadySelected = !!(matchedExisting && selectedSet[matchedExisting.name]);
   async function confirmCustom(){
     if (!pendingCustom || !pendingCustom.name.trim() || customSaving) return;
-    if (matchedExisting && selectedSet[matchedExisting.name]) { setPendingCustom(null); return; }
+    if (alreadySelected) {
+      if (!pendingCustom.sectionId || !onRetagDish) { setPendingCustom(null); return; }
+      setCustomSaving(true);
+      try {
+        await onRetagDish(matchedExisting.name, pendingCustom.sectionId);
+        setPendingCustom(null);
+      } catch (e) {
+        sayFail(T2('Could not move that dish'), e);
+      } finally {
+        setCustomSaving(false);
+      }
+      return;
+    }
     // An SOP/recipe section is required for a genuinely NEW dish (not one
     // that matched an existing library entry, which already has whatever
     // category it has) — see MenuEditor.jsx's confirmCustom for why: without
@@ -1473,7 +1493,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
             </div>
             {matchedExisting && (
               <div style={{ fontSize: 11.5, color: C.green, marginBottom: 16, display: "flex", alignItems: "center", gap: 5 }}>
-                ✓ {T2("Already in the library")} ({matchedExisting.catName}){selectedSet[matchedExisting.name] ? " — " + T2("already in this menu") : ""}
+                ✓ {T2("Already in the library")} ({matchedExisting.catName}){alreadySelected ? " — " + T2("already in this menu. Pick a Menu section below to move it.") : ""}
               </div>
             )}
 
@@ -1500,7 +1520,9 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
 
             {placementGroups.length > 0 && (
               <>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Menu section")}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+                  {T2("Menu section")}{alreadySelected && <span style={{ textTransform: "none", fontWeight: 500, letterSpacing: 0, color: C.red }}> ({T2("required to move it")})</span>}
+                </div>
                 <SectionPillPicker groups={placementGroups} value={pendingCustom.sectionId}
                   onChange={function(id){ setPendingCustom(function(p){ return { ...p, sectionId: id }; }); }}
                   T2={T2} accent={C.wine} />
@@ -1512,9 +1534,9 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
                 style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                 {T2("Cancel")}
               </button>
-              <button onClick={confirmCustom} disabled={!pendingCustom.name.trim() || customSaving || (matchedExisting && selectedSet[matchedExisting.name]) || (!matchedExisting && !pendingCustom.catId)}
-                style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: customSaving ? "wait" : "pointer", opacity: (customSaving || (matchedExisting && selectedSet[matchedExisting.name]) || (!matchedExisting && !pendingCustom.catId)) ? 0.6 : 1 }}>
-                {customSaving ? T2("Adding…") : (matchedExisting ? T2("Add to menu") : T2("Add dish"))}
+              <button onClick={confirmCustom} disabled={!pendingCustom.name.trim() || customSaving || (alreadySelected ? (!pendingCustom.sectionId || !onRetagDish) : (!matchedExisting && !pendingCustom.catId))}
+                style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: customSaving ? "wait" : "pointer", opacity: (customSaving || (alreadySelected ? (!pendingCustom.sectionId || !onRetagDish) : (!matchedExisting && !pendingCustom.catId))) ? 0.6 : 1 }}>
+                {customSaving ? (alreadySelected ? T2("Moving…") : T2("Adding…")) : (alreadySelected ? T2("Move to this section") : (matchedExisting ? T2("Add to menu") : T2("Add dish")))}
               </button>
             </div>
           </div>
@@ -1529,7 +1551,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
           <div onClick={function(e){ e.stopPropagation(); }}
             style={{ background: C.surface, borderRadius: 12, padding: 20, maxWidth: 460, width: "100%", maxHeight: "80vh", overflow: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.3)" }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 4 }}>📚 {T2("Add section from library")}</div>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>{T2("Gets its own pill named after the catalogue section, tagged as add-ons — nothing is auto-selected. Pick a Menu section below only if you'd rather merge it into an existing pill instead.")}</div>
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>{T2("Gets its own pill named after the catalogue section, tagged as add-ons — nothing is auto-selected.")}</div>
 
             <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Catalogue section")}</div>
             {(!catalogueSectionGroups || catalogueSectionGroups.length === 0) && (
@@ -1562,15 +1584,6 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
                 </div>
                 <div style={{ fontSize: 10.5, color: C.faint, marginTop: 6 }}>{T2("Adds it to the Dish Library's section list too, and opens Add Dish so you can put something in it right away.")}</div>
               </div>
-            )}
-
-            {placementGroups.length > 0 && (
-              <>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Merge into existing menu section")} <span style={{ fontWeight: 400, textTransform: "none", color: C.faint }}>({T2("optional — this event only")})</span></div>
-                <SectionPillPicker groups={placementGroups} value={pendingSection.targetId}
-                  onChange={function(id){ setPendingSection(function(p){ return { ...p, targetId: id }; }); }}
-                  T2={T2} accent={C.wine} />
-              </>
             )}
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>

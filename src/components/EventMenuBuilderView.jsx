@@ -1853,6 +1853,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
                   seeding={seeding}
                   onAddCustomDish={addCustomDish}
                   onAddExistingDish={addExistingDish}
+                  onRetagDish={saveSectionOverride}
                   allDishes={allDishes}
                   catalogueSectionOptions={catalogueSectionOptions}
                   catalogueSectionGroups={catalogueSectionGroups}
