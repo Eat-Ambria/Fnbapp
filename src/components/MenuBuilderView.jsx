@@ -389,16 +389,27 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // V76: manual re-seed — recovers proposals stuck with 0 selected because
   // seedTemplateIfNeeded's one-shot auto-seed fired before pkgMapLoaded resolved
   // (a pre-existing race, now fixed above, but already-affected proposals were
-  // permanently marked menu_initialized with nothing seeded). Also just generally
-  // useful as a "bring back anything from the package I removed" action — only
-  // ever ADDS missing template dishes, never touches existing selections.
+  // permanently marked menu_initialized with nothing seeded).
+  //
+  // RESETS the menu to exactly the package's defaults (user-requested change,
+  // 2026-11-25) — removes anything selected that isn't part of that default
+  // set (a custom add-on, or a dish individually picked from a no-auto-select
+  // section/dish) and adds whatever's missing. Used to only ever ADD; confirms
+  // first whenever anything would actually be removed (purely additive runs,
+  // the common case, skip the confirm entirely, same ergonomics as before).
   async function loadPackageDefaults() {
     if (!proposal || !proposal.id || templateInfo.dishes.length === 0 || seeding) return;
     setSeeding(true);
     try {
       var seedDishes = await menuItemOps.filterAutoSeedable(templateInfo.dishes, templateInfo.name);
+      var wantSet = {}; seedDishes.forEach(function(d){ wantSet[d] = true; });
+      var toRemove = dishItems.filter(function(x){ return !wantSet[x.dish_name]; }).map(function(x){ return x.dish_name; });
+      if (toRemove.length > 0) {
+        var preview = toRemove.slice(0, 8).join(', ') + (toRemove.length > 8 ? '…' : '');
+        if (!window.confirm(T2('Reset to package defaults? This removes') + ' ' + toRemove.length + ' ' + T2('dish(es) not in the package\'s default selection') + ': ' + preview)) return;
+      }
       var result = await menuItemOps.loadPackageDefaultItems(itemsOpsConfig, dishItems, seedDishes, setDishItems);
-      if (result.added.length === 0) say('ok', T2('Nothing to load'), T2('Every dish in this package is already selected.'));
+      if (result.added.length === 0 && result.removed.length === 0) say('ok', T2('Nothing to load'), T2('Menu already matches the package defaults.'));
     } catch (e) {
       console.error('[MenuBuilder] loadPackageDefaults failed:', e);
       sayFail(T2('Could not load the package defaults'), e);

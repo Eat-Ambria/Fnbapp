@@ -1557,16 +1557,33 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     }
   }
 
-  // Only ever ADDS missing package dishes — never removes or duplicates existing selections.
+  // RESETS the menu to exactly the package's defaults — removes anything
+  // selected that isn't part of that default set (a custom add-on, or a
+  // dish individually picked from a no-auto-select section/dish) and adds
+  // whatever's missing. User-requested change (2026-11-25): this used to
+  // only ever ADD missing package dishes, never touching an existing
+  // selection; confirms first whenever anything would actually be removed
+  // (same window.confirm pattern removeWholeSection above already uses in
+  // this file — purely additive runs, the common case, skip the confirm
+  // entirely, same ergonomics as before).
   async function loadPackageDefaults() {
     if (blockIfMenuLocked()) return;
     if (!event || !event.id || templateInfo.dishes.length === 0 || seeding) return;
     setSeeding(true);
     try {
       var seedDishes = await menuItemOps.filterAutoSeedable(templateInfo.dishes, templateInfo.name);
+      var wantSet = {}; seedDishes.forEach(function(d){ wantSet[d] = true; });
+      var toRemove = dishItems.filter(function(x){ return !wantSet[x.dish_name]; }).map(function(x){ return x.dish_name; });
+      if (toRemove.length > 0) {
+        var preview = toRemove.slice(0, 8).join(', ') + (toRemove.length > 8 ? '…' : '');
+        if (!window.confirm(T2('Reset to package defaults? This removes') + ' ' + toRemove.length + ' ' + T2('dish(es) not in the package\'s default selection') + ': ' + preview)) return;
+      }
       var result = await menuItemOps.loadPackageDefaultItems(itemsOpsConfig, dishItems, seedDishes, setDishItems);
-      if (result.added.length === 0) { alert(T2('All package dishes are already selected.')); return; }
-      await mirrorKitchenMenu(result.nextItems);
+      if (result.added.length === 0 && result.removed.length === 0) { alert(T2('Menu already matches the package defaults.')); return; }
+      var affected = (result.added || []).map(function(a){ return a.dish_name; }).concat(result.removed || []);
+      if (affected.some(isKitchenTrackedDish)) await mirrorKitchenMenu(result.nextItems);
+      clearKitchenTrackingForRemovedDishes(result.removed);
+      logFpHistory(T2('Reset to package defaults') + (toRemove.length > 0 ? ' (' + T2('removed') + ' ' + toRemove.length + ')' : ''));
     } catch (e) {
       console.error('[EventMenuBuilder] loadPackageDefaults failed:', e);
       alert(T2('Failed to load package defaults:') + ' ' + (e.message || e));

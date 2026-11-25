@@ -155,7 +155,7 @@ grep -r "Work Force" src/              # Should return NOTHING
 grep "base:" vite.config.js            # Should show base: '/Fnbapp/'
 grep "toISOString" src/App.jsx         # Should return NOTHING
 npm run build                          # Must succeed
-npx vitest run                         # Must pass (243 tests, 10 files)
+npx vitest run                         # Must pass (249 tests, 10 files)
 
 ---
 

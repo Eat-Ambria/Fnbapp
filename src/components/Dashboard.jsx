@@ -462,6 +462,54 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
     setShowForm(false);setShowMenuEditor(false);setMenuEditorDishes([]);setOrigMenuEditorDishes([]);setEditId(null);setOrigForm(null);
     }finally{setSavingEvent(false);}
   }
+  // ODC's embedded Menu Editor (MenuEditor.jsx, shared with MenuPackagesView's
+  // "Build Menu" tab) has TWO of its own places that used to hand it a
+  // package's COMPLETE RAW dish list — the same bug class fixed above in
+  // saveForm/commitMenu, found separately here since this screen wires
+  // MenuEditor's onChange straight to a plain setState instead of a branching
+  // handler like commitMenu's.
+  //
+  // 1. Opening the editor for the first time with a package already picked
+  //    in the form (below) used to seed menuEditorDishes with
+  //    MENU_PACKAGES[form.menuPackage] verbatim.
+  // 2. MenuEditor's own "Quick start from package" button calls
+  //    onChange(rawDishes, {action:'package', pkgName}) — wiring that
+  //    straight to setMenuEditorDishes (a plain useState setter) silently
+  //    drops the second `delta` argument, so the raw list landed in state
+  //    with no filtering at all, exactly like the 'add'/'remove' per-dish
+  //    deltas correctly do NOT get filtered (a human's deliberate single
+  //    pick should never be blocked by no_auto_select) but a bulk
+  //    package-assignment delta should.
+  // Guards the real network round-trip filterAutoSeedable does inside both
+  // functions below — found by adversarial review: without this, a second
+  // click on "Open menu editor" while the first's await was still pending
+  // could re-enter it, and worse, a quick single-dish add/remove clicked
+  // inside the editor during a pending "Quick start from package" filter
+  // would land first (synchronously) only to be silently clobbered the
+  // moment the package filter's await resolved and overwrote
+  // menuEditorDishes wholesale. Passed to MenuEditor as `disabled` (distinct
+  // from `locked` — no "FP is locked" alert, just a silent block) so every
+  // mutation in the editor is inert for the brief window either await is in
+  // flight, and the outer toggle button is disabled too.
+  const [menuEditorBusy, setMenuEditorBusy] = useState(false);
+  async function openMenuEditor(){
+    if (menuEditorBusy) return;
+    if (form.menuPackage && MENU_PACKAGES[form.menuPackage]) {
+      setMenuEditorBusy(true);
+      try { setMenuEditorDishes(await filterAutoSeedable(MENU_PACKAGES[form.menuPackage], form.menuPackage)); }
+      finally { setMenuEditorBusy(false); }
+    } else if (menuEditorDishes.length === 0) {
+      setMenuEditorDishes((form.menu||"").split(",").map(s=>s.trim()).filter(Boolean));
+    }
+    setShowMenuEditor(true);
+  }
+  async function onMenuEditorChange(dishes, delta){
+    if (!delta || delta.action !== 'package') { setMenuEditorDishes(dishes); return; }
+    if (menuEditorBusy) return;
+    setMenuEditorBusy(true);
+    try { setMenuEditorDishes(await filterAutoSeedable(dishes, delta.pkgName)); }
+    finally { setMenuEditorBusy(false); }
+  }
   function delEv(id){const ev=(events||[]).find(e=>e.id===id);setEvents(p=>(p||[]).filter(e=>e.id!==id));logActivity('system','Event deleted: '+(ev?.guest||id)+' ('+id+')','event_delete',{evId:id,guest:ev?.guest||''},currentUser?.id);setDeleteId(null);}
 
   // The shared field. White on the modal's ivory rather than the old grey-on-
@@ -653,15 +701,15 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
               {/* ── ODC Menu Editor toggle ── */}
               {isODC&&(
                 <div style={{marginBottom:12}}>
-                  <button onClick={()=>{if(!showMenuEditor){const existing=form.menuPackage&&MENU_PACKAGES[form.menuPackage]?[...MENU_PACKAGES[form.menuPackage]]:menuEditorDishes.length>0?menuEditorDishes:(form.menu||"").split(",").map(s=>s.trim()).filter(Boolean);setMenuEditorDishes(existing);setShowMenuEditor(true);}else{setShowMenuEditor(false);}}} style={{padding:"8px 16px",borderRadius:8,background:showMenuEditor?C.surface:C.purple,color:showMenuEditor?C.purple:"#fff",border:`1px solid ${showMenuEditor?C.purpleBorder:"transparent"}`,fontSize:12,fontWeight:600,cursor:"pointer"}}>
-                    {showMenuEditor?"▲ Close menu editor":"🍽 Open menu editor — confirm dishes for ODC"}
+                  <button onClick={()=>{if(menuEditorBusy)return;if(!showMenuEditor){openMenuEditor();}else{setShowMenuEditor(false);}}} disabled={menuEditorBusy} style={{padding:"8px 16px",borderRadius:8,background:showMenuEditor?C.surface:C.purple,color:showMenuEditor?C.purple:"#fff",border:`1px solid ${showMenuEditor?C.purpleBorder:"transparent"}`,fontSize:12,fontWeight:600,cursor:menuEditorBusy?"not-allowed":"pointer",opacity:menuEditorBusy?0.6:1}}>
+                    {menuEditorBusy?"…":showMenuEditor?"▲ Close menu editor":"🍽 Open menu editor — confirm dishes for ODC"}
                   </button>
                   {showMenuEditor&&<div style={{marginTop:2,fontSize:11,color:menuEditorDishes.length>0?C.green:C.red,fontWeight:600}}>{menuEditorDishes.length>0?`✓ ${menuEditorDishes.length} dishes selected`:"⚠ No dishes — menu must be confirmed before kitchen can prep"}</div>}
                 </div>
               )}
               {showMenuEditor&&(
                 <div style={{marginBottom:14}}>
-                  <MenuEditor selected={menuEditorDishes} onChange={setMenuEditorDishes} lang={lang}/>
+                  <MenuEditor selected={menuEditorDishes} onChange={onMenuEditorChange} disabled={menuEditorBusy} lang={lang}/>
                 </div>
               )}
 

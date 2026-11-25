@@ -14,6 +14,7 @@ import { setDishMaster } from '../data/recipeData.js';
 import { MENU_PACKAGE_NO_AUTO_OVERRIDES } from '../data/menuPackages.js';
 
 var noAutoSectionIds = [];
+var dbCalls = [];
 vi.mock('./supabase.js', () => ({
   supabase: {
     from(table) {
@@ -26,12 +27,45 @@ vi.mock('./supabase.js', () => ({
             },
           };
         },
+        delete() {
+          return {
+            eq(fk, fkValue) {
+              return {
+                in(col, values) {
+                  dbCalls.push({ table: table, op: 'delete', fk: fk, fkValue: fkValue, col: col, values: values.slice() });
+                  return Promise.resolve({ error: null });
+                },
+              };
+            },
+          };
+        },
+        insert(rows) {
+          return {
+            select() {
+              dbCalls.push({ table: table, op: 'insert', rows: rows.map(function (r) { return { ...r }; }) });
+              return Promise.resolve({ data: rows, error: null });
+            },
+          };
+        },
+        update(fields) {
+          return {
+            eq(col, value) {
+              dbCalls.push({ table: table, op: 'update', fields: { ...fields }, col: col, value: value });
+              return Promise.resolve({ error: null });
+            },
+          };
+        },
       };
     },
   },
 }));
 
-const { filterAutoSeedable } = await import('./menuItemOps.js');
+const { filterAutoSeedable, loadPackageDefaultItems } = await import('./menuItemOps.js');
+
+const ITEMS_CONFIG = {
+  itemsTable: 'event_items', itemsFk: 'event_id', itemsFkValue: 'EVT-1',
+  parentTable: 'events', parentIdValue: 'EVT-1', initializedColumn: 'event_items_initialized',
+};
 
 const PKG_NAME = '__menuitemops_test_pkg__';
 
@@ -107,5 +141,72 @@ describe('filterAutoSeedable', () => {
     expect(await filterAutoSeedable([], PKG_NAME)).toEqual([]);
     expect(await filterAutoSeedable(null, PKG_NAME)).toEqual([]);
     expect(await filterAutoSeedable(undefined, PKG_NAME)).toEqual([]);
+  });
+});
+
+describe('loadPackageDefaultItems', () => {
+  beforeEach(() => { dbCalls = []; });
+
+  function row(name, extra) { return Object.assign({ dish_name: name, is_addon: false, ordering: 0 }, extra || {}); }
+
+  it('is purely additive when every current selection is already in the default set (no removal, no DB delete call at all)', async () => {
+    const dishItems = [row('Paneer Tikka')];
+    const onOptimistic = vi.fn();
+    const result = await loadPackageDefaultItems(ITEMS_CONFIG, dishItems, ['Paneer Tikka', 'Dal Makhani'], onOptimistic);
+    expect(result.removed).toEqual([]);
+    expect(result.added.map(a => a.dish_name)).toEqual(['Dal Makhani']);
+    expect(dbCalls.some(c => c.op === 'delete')).toBe(false);
+    const next = onOptimistic.mock.calls[0][0].map(x => x.dish_name);
+    expect(next.sort()).toEqual(['Dal Makhani', 'Paneer Tikka']);
+  });
+
+  it('REMOVES a selected dish that is NOT in the new default set — a custom add-on', async () => {
+    const dishItems = [row('Paneer Tikka'), row('Custom Add-on Dish', { is_addon: true })];
+    const onOptimistic = vi.fn();
+    const result = await loadPackageDefaultItems(ITEMS_CONFIG, dishItems, ['Paneer Tikka'], onOptimistic);
+    expect(result.removed).toEqual(['Custom Add-on Dish']);
+    expect(result.added).toEqual([]);
+    const delCall = dbCalls.find(c => c.op === 'delete');
+    expect(delCall.values).toEqual(['Custom Add-on Dish']);
+    const next = onOptimistic.mock.calls[0][0].map(x => x.dish_name);
+    expect(next).toEqual(['Paneer Tikka']);
+  });
+
+  it('REMOVES a package dish that was individually picked from a no-auto-select section, if it is no longer in the filtered default set', async () => {
+    // Sweet Corn Soup is a real package dish (is_addon: false) but not part
+    // of the auto-seedable default set passed in here — the whole point of
+    // this reset: a manually-picked no-auto-select soup gets cleared too.
+    const dishItems = [row('Paneer Tikka'), row('Sweet Corn Soup')];
+    const result = await loadPackageDefaultItems(ITEMS_CONFIG, dishItems, ['Paneer Tikka'], vi.fn());
+    expect(result.removed).toEqual(['Sweet Corn Soup']);
+  });
+
+  it('does both an add AND a remove in one call, and never touches a dish present in both the old selection and the new defaults', async () => {
+    const dishItems = [row('Paneer Tikka'), row('Old Addon', { is_addon: true, ordering: 7 })];
+    const onOptimistic = vi.fn();
+    const result = await loadPackageDefaultItems(ITEMS_CONFIG, dishItems, ['Paneer Tikka', 'Dal Makhani'], onOptimistic);
+    expect(result.removed).toEqual(['Old Addon']);
+    expect(result.added.map(a => a.dish_name)).toEqual(['Dal Makhani']);
+    const next = onOptimistic.mock.calls[0][0];
+    const paneer = next.find(x => x.dish_name === 'Paneer Tikka');
+    expect(paneer.ordering).toBe(0); // the ORIGINAL row object, untouched — not re-inserted
+  });
+
+  it('a menu that already exactly matches the default set does nothing at all — no delete, no insert, no onOptimistic call', async () => {
+    const dishItems = [row('Paneer Tikka'), row('Dal Makhani')];
+    const onOptimistic = vi.fn();
+    const result = await loadPackageDefaultItems(ITEMS_CONFIG, dishItems, ['Paneer Tikka', 'Dal Makhani'], onOptimistic);
+    expect(result).toEqual({ added: [], removed: [] });
+    expect(dbCalls).toEqual([]);
+    expect(onOptimistic).not.toHaveBeenCalled();
+  });
+
+  it('marks the parent row initialized after a change, via config.parentTable/initializedColumn', async () => {
+    await loadPackageDefaultItems(ITEMS_CONFIG, [], ['Paneer Tikka'], vi.fn());
+    const updateCall = dbCalls.find(c => c.op === 'update');
+    expect(updateCall.table).toBe('events');
+    expect(updateCall.fields).toEqual({ event_items_initialized: true });
+    expect(updateCall.col).toBe('id');
+    expect(updateCall.value).toBe('EVT-1');
   });
 });

@@ -26,7 +26,14 @@ import { getEventItemsByDept } from '../lib/eventItems.js';
 // can't be added/removed here; doing that still requires the Items tab,
 // which is the one place that actually persists them (and the one every
 // other Beverage/Fruit-reading screen — Beverage Ops, FP print — agrees with).
-function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectionOverrides = {}, onSectionOverridesChange, outsourcedDishes = [], onOutsourcedChange, locked = false, event = null }) {
+// `disabled` is distinct from `locked`: `locked` means "this event's FP is
+// locked" and shows warnLocked()'s specific alert; `disabled` silently blocks
+// every mutation with no alert at all — for a caller mid-await on its OWN
+// onChange handler (e.g. Dashboard.jsx's ODC editor while a "Quick start from
+// package" delta is still being filterAutoSeedable-filtered), where any
+// other edit landing in that window would race the pending one and get
+// silently overwritten once it resolves. See Dashboard.jsx's menuEditorBusy.
+function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectionOverrides = {}, onSectionOverridesChange, outsourcedDishes = [], onOutsourcedChange, locked = false, disabled = false, event = null }) {
   var T2 = function(s) { return T(s, lang); };
   var [search, setSearch] = useState("");
   var [selSearch, setSelSearch] = useState("");
@@ -268,6 +275,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
 
   function addDish(name) {
     if (locked) { warnLocked(); return; }
+    if (disabled) return;
     var explicit = getExplicitCatIdForDish(name);
     if (explicit && nonKitCatIds.indexOf(explicit) >= 0) {
       alert(T2('Beverage and Fruit dishes are tracked separately — add this from the Items tab, not here.'));
@@ -280,6 +288,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
 
   function removeDish(name) {
     if (locked) { warnLocked(); return; }
+    if (disabled) return;
     onChange(selected.filter(function(s) { return s.toLowerCase() !== name.toLowerCase(); }), { action: 'remove', name: name });
     if (onOutsourcedChange && outsourcedSet.has(name)) {
       onOutsourcedChange(outsourcedDishes.filter(function(n) { return n !== name; }));
@@ -292,6 +301,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   var outsourcedSet = new Set(outsourcedDishes || []);
   function toggleOutsourced(name) {
     if (locked) { warnLocked(); return; }
+    if (disabled) return;
     if (!onOutsourcedChange) return;
     var isOut = outsourcedSet.has(name);
     onOutsourcedChange(isOut ? outsourcedDishes.filter(function(n) { return n !== name; }) : [...outsourcedDishes, name]);
@@ -307,6 +317,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
 
   function openCustomModal() {
     if (locked) { warnLocked(); return; }
+    if (disabled) return;
     var name = customDish.trim();
     if (!name) return;
     if (selectedSet.has(name.toLowerCase())) { setCustomDish(""); return; }
@@ -375,6 +386,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
 
   function selectPackage(pkgName) {
     if (locked) { warnLocked(); return; }
+    if (disabled) return;
     if (selected.length > 0) {
       setPendingDestructive({ kind: 'package', pkgName: pkgName, count: (MENU_PACKAGES[pkgName] || []).length });
       return;
@@ -384,6 +396,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
 
   function confirmDestructive() {
     if (!pendingDestructive) return;
+    if (disabled) { setPendingDestructive(null); return; }
     if (pendingDestructive.kind === 'package') onChange([...(MENU_PACKAGES[pendingDestructive.pkgName] || [])], { action: 'package', pkgName: pendingDestructive.pkgName });
     else if (pendingDestructive.kind === 'clear') onChange([]);
     setPendingDestructive(null);
@@ -416,8 +429,8 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
           {Object.keys(MENU_PACKAGES).map(function(pkg) {
             var count = (MENU_PACKAGES[pkg] || []).length;
             return (
-              <button key={pkg} onClick={function() { selectPackage(pkg); }} disabled={locked}
-                style={{ padding: "4px 12px", borderRadius: 20, fontSize: 11, cursor: locked ? "not-allowed" : "pointer", background: "transparent", border: "1px solid " + C.border, color: C.text, whiteSpace: "nowrap", opacity: locked ? 0.5 : 1 }}>
+              <button key={pkg} onClick={function() { selectPackage(pkg); }} disabled={locked || disabled}
+                style={{ padding: "4px 12px", borderRadius: 20, fontSize: 11, cursor: (locked || disabled) ? "not-allowed" : "pointer", background: "transparent", border: "1px solid " + C.border, color: C.text, whiteSpace: "nowrap", opacity: (locked || disabled) ? 0.5 : 1 }}>
                 {pkg} <span style={{ color: C.muted }}>({count})</span>
               </button>
             );
@@ -426,7 +439,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
       </div>
 
       {/* Two-column layout */}
-      <div style={{ display: "flex", gap: 12, minHeight: 400, opacity: locked ? 0.7 : 1 }}>
+      <div style={{ display: "flex", gap: 12, minHeight: 400, opacity: (locked || disabled) ? 0.7 : 1 }}>
 
         {/* LEFT: Available dishes */}
         <div style={{ ...COL, flex: 1 }}>
@@ -517,7 +530,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
           <div style={{ ...COLHEAD, background: C.greenBg, color: C.green }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span>✅ {T2("Selected menu")} ({displayNames.length})</span>
-              {selected.length > 0 && !locked && (
+              {selected.length > 0 && !locked && !disabled && (
                 <button onClick={function() { setPendingDestructive({ kind: 'clear', count: 0 }); }}
                   style={{ padding: "3px 10px", borderRadius: 8, fontSize: 10, background: C.redBg, border: "1px solid " + C.redBorder, color: C.red, cursor: "pointer", fontWeight: 600 }}>{T2("Clear all")}</button>
               )}

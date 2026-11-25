@@ -120,28 +120,57 @@ export async function addDishItem(config, dishItems, dishName, onOptimistic) {
 // to add", which the caller turns into its OWN existing message (copy and
 // mechanism differ per file today — a styled toast vs. a bare alert, with
 // different wording — preserved here, not merged).
+// RESETS the selection to EXACTLY `templateDishes` (the package's already-
+// filterAutoSeedable-filtered default set, per the caller) — removes every
+// currently-selected dish NOT in that set (a genuine custom add-on, AND any
+// package dish a human had individually picked from a no-auto-select
+// section/dish, e.g. one specific Soup-Station soup) and adds whatever in
+// that set is still missing. User-requested change (2026-11-25): "Load
+// defaults" used to only ever ADD missing package dishes, never touching an
+// existing selection — now it's a true reset, matching "reset the menu to
+// defaults and un-select any add-ons" exactly.
+//
+// A dish already selected AND already in `templateDishes` is left
+// completely untouched (its row, ordering, foc flag, etc. survive) — only
+// the extraneous/missing ones are written.
 export async function loadPackageDefaultItems(config, dishItems, templateDishes, onOptimistic) {
+  var want = {};
+  (templateDishes || []).forEach(function(d){ want[d] = true; });
   var have = {};
   dishItems.forEach(function(x){ have[x.dish_name] = true; });
+  var toRemove = dishItems.filter(function(x){ return !want[x.dish_name]; }).map(function(x){ return x.dish_name; });
   var toAdd = (templateDishes || []).filter(function(d){ return !have[d]; });
-  if (toAdd.length === 0) return { added: [] };
-  var rows = toAdd.map(function(d, i){
-    var row = {};
-    row[config.itemsFk] = config.itemsFkValue;
-    row.dish_name = d;
-    row.is_addon = false;
-    row.ordering = dishItems.length + i;
-    return row;
-  });
-  var ins = await supabase.from(config.itemsTable).insert(rows).select();
-  if (ins.error) throw ins.error;
-  var added = ins.data || [];
-  var nextItems = dishItems.concat(added);
+  if (toRemove.length === 0 && toAdd.length === 0) return { added: [], removed: [] };
+
+  var kept = dishItems.filter(function(x){ return want[x.dish_name]; });
+
+  if (toRemove.length > 0) {
+    var del = await supabase.from(config.itemsTable).delete()
+      .eq(config.itemsFk, config.itemsFkValue).in('dish_name', toRemove);
+    if (del.error) throw del.error;
+  }
+
+  var added = [];
+  if (toAdd.length > 0) {
+    var rows = toAdd.map(function(d, i){
+      var row = {};
+      row[config.itemsFk] = config.itemsFkValue;
+      row.dish_name = d;
+      row.is_addon = false;
+      row.ordering = kept.length + i;
+      return row;
+    });
+    var ins = await supabase.from(config.itemsTable).insert(rows).select();
+    if (ins.error) throw ins.error;
+    added = ins.data || [];
+  }
+
+  var nextItems = kept.concat(added);
   onOptimistic(nextItems);
   var flag = {};
   flag[config.initializedColumn] = true;
   await supabase.from(config.parentTable).update(flag).eq('id', config.parentIdValue);
-  return { added: added, nextItems: nextItems };
+  return { added: added, removed: toRemove, nextItems: nextItems };
 }
 
 // FULLY self-contained: optimistic flip, swallow + rollback + console.error
