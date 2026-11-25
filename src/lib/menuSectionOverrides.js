@@ -47,10 +47,19 @@ export function overridesWithoutOldPackageLocalIds(overrides, oldPkgSections, ne
   const cleaned = {};
   let changed = false;
   Object.keys(overrides || {}).forEach(function (dishName) {
-    const rawId = overrides[dishName];
-    const id = stripUnplaced(rawId);
-    if (oldIds.has(id) && !newIds.has(id)) { changed = true; return; }
-    cleaned[dishName] = rawId;
+    const rawVal = overrides[dishName];
+    // A multi-section tag (array) drops only the ids that went stale, keeping
+    // whichever still resolve — a scalar tag behaves exactly as before
+    // (the dish's one tag either survives whole or is dropped whole).
+    const isArr = Array.isArray(rawVal);
+    const ids = isArr ? rawVal : [rawVal];
+    const kept = ids.filter(function (rawId) {
+      const id = stripUnplaced(rawId);
+      return !(oldIds.has(id) && !newIds.has(id));
+    });
+    if (kept.length === 0) { changed = true; return; }
+    if (kept.length !== ids.length) changed = true;
+    cleaned[dishName] = isArr ? kept : kept[0];
   });
   return { overrides: cleaned, changed: changed };
 }

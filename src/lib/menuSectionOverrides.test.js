@@ -105,4 +105,24 @@ describe('overridesWithoutOldPackageLocalIds', () => {
     expect(r.overrides).toEqual({ 'Pulao': 'sec_1', 'Paneer Tikka': 'cat-tandoor' });
     expect(r.changed).toBe(false);
   });
+
+  // --- Multi-section tags (array-valued overrides) ---
+
+  it('a multi-section tag keeps only the ids that survive, as an array, dropping just the stale one', () => {
+    const r = overridesWithoutOldPackageLocalIds({ 'Steam Rice': ['sec_1', 'cat-driver-food'] }, OLD_PKG_SECTIONS, NEW_PKG_SECTIONS);
+    expect(r.overrides).toEqual({ 'Steam Rice': ['cat-driver-food'] });
+    expect(r.changed).toBe(true);
+  });
+
+  it('a multi-section tag with every id still valid is kept as the same array, unchanged', () => {
+    const r = overridesWithoutOldPackageLocalIds({ 'Steam Rice': ['cat-driver-food', 'cat-tandoor'] }, OLD_PKG_SECTIONS, NEW_PKG_SECTIONS);
+    expect(r.overrides).toEqual({ 'Steam Rice': ['cat-driver-food', 'cat-tandoor'] });
+    expect(r.changed).toBe(false);
+  });
+
+  it('a multi-section tag where every id goes stale drops the whole dish, same as a scalar tag going stale', () => {
+    const r = overridesWithoutOldPackageLocalIds({ 'Steam Rice': ['sec_1', 'sub_1'] }, OLD_PKG_SECTIONS, NEW_PKG_SECTIONS);
+    expect(r.overrides).toEqual({});
+    expect(r.changed).toBe(true);
+  });
 });

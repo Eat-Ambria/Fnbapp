@@ -55,7 +55,11 @@ function buildEventDeptContext(event, sectionsArr) {
   const sectionOverrideDept = {};
   Object.keys(sectionOverrides).forEach(name => {
     const targetId = sectionOverrides[name];
-    if (!targetId) return;
+    // An array-valued tag is the newer, purely ADDITIVE multi-section shape
+    // (the dish also prints/shows under an extra pill, display-only) — it
+    // must never reroute a dish's real department here, same reasoning as
+    // useMenuItemGrouping.js's own sectionOverrideDept.
+    if (!targetId || Array.isArray(targetId)) return;
     const dept = resolveDeptForOverrideTarget(targetId, pkgSecs, sectionsArr);
     if (dept) sectionOverrideDept[name] = dept;
   });

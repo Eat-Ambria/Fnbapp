@@ -42,6 +42,16 @@
 // This is now the ONLY implementation of this resolution — EventMenuBuilderView
 // .jsx's effectiveSectionIdByDish calls buildOverrideResolver below directly
 // instead of keeping its own separate copy, so there is nothing left to drift.
+// A sectionOverrides entry is a single raw id (the original, single-section
+// shape) OR an array of raw ids (multi-section: "also show this dish under
+// every one of these pills" — see useMenuItemGrouping.js's groupedByPkgSection
+// override-placement loop). Every reader normalizes through this so neither
+// shape has to be special-cased at each call site.
+export function normalizeOverrideIds(raw) {
+  if (!raw) return [];
+  return (Array.isArray(raw) ? raw : [raw]).filter(Boolean);
+}
+
 function stripUnplaced(id) {
   var i = (id || '').indexOf('__unplaced');
   return i >= 0 ? id.slice(0, i) : id;

@@ -27,6 +27,7 @@
 import { supabase } from './supabase.js';
 import { getAllDishes } from '../data/recipeData.js';
 import { MENU_PACKAGE_NO_AUTO_OVERRIDES } from '../data/menuPackages.js';
+import { normalizeOverrideIds } from './catalogueSection.js';
 
 // Dishes that should never be bulk-added as package "defaults" — the whole
 // point is that picking one is a deliberate choice, not a formality everyone
@@ -254,12 +255,22 @@ async function mergeOverridesForWrite(config, mutate) {
 // a lost persistence write here was already a silent risk before this
 // module existed, not something introduced by unifying it).
 export async function saveSectionOverride(config, sectionOverrides, dishName, sectionId, onOptimistic) {
+  // sectionId can be a single raw id (legacy/plain shape) OR an array of ids
+  // (multi-section tag). Canonicalize here so every caller gets the same
+  // shape for free: a 1-item array collapses to a plain scalar (byte-
+  // identical to the original single-value behavior — effectiveSectionIdByDish
+  // and friends only apply the newer "native wins, array is additive" rule to
+  // a GENUINE multi-id tag), and an empty array means "clear", same as a
+  // falsy scalar — it can't just be a truthiness check on sectionId itself,
+  // since `!![]` is true in JS.
+  if (Array.isArray(sectionId) && sectionId.length === 1) sectionId = sectionId[0];
+  var hasVal = Array.isArray(sectionId) ? sectionId.length > 0 : !!sectionId;
   var next = { ...sectionOverrides };
-  if (sectionId) next[dishName] = sectionId; else delete next[dishName];
+  if (hasVal) next[dishName] = sectionId; else delete next[dishName];
   onOptimistic(next);
   try {
     var toWrite = await mergeOverridesForWrite(config, function(fresh){
-      if (sectionId) fresh[dishName] = sectionId; else delete fresh[dishName];
+      if (hasVal) fresh[dishName] = sectionId; else delete fresh[dishName];
       return fresh;
     });
     var res = await supabase.from(config.parentTable).update({ menu_section_overrides: toWrite }).eq('id', config.parentIdValue);
@@ -283,12 +294,21 @@ export async function addSectionFromLibrary(config, sectionOverrides, catSection
   if (res.error) throw res.error;
   var names = (res.data || []).map(function(r){ return r.dish_name; });
   if (names.length === 0) return;
+  // ADDITIVE, not a clobbering overwrite — a dish swept into this bulk tag
+  // can already carry its own multi-section tag (e.g. separately tagged to
+  // an extra pill via the Add-dish retag flow); a bare `next[n] = targetId`
+  // would silently wipe that out from under it. Caught by adversarial review.
+  function addTag(map, n) {
+    var cur = normalizeOverrideIds(map[n]);
+    if (cur.indexOf(targetId) === -1) cur.push(targetId);
+    map[n] = cur.length === 1 ? cur[0] : cur;
+  }
   var next = { ...sectionOverrides };
-  names.forEach(function(n){ next[n] = targetId; });
+  names.forEach(function(n){ addTag(next, n); });
   onOptimistic(next);
   try {
     var toWrite = await mergeOverridesForWrite(config, function(fresh){
-      names.forEach(function(n){ fresh[n] = targetId; });
+      names.forEach(function(n){ addTag(fresh, n); });
       return fresh;
     });
     var updRes = await supabase.from(config.parentTable).update({ menu_section_overrides: toWrite }).eq('id', config.parentIdValue);
@@ -320,14 +340,30 @@ export async function removeSectionItems(config, dishItems, dishNames, onOptimis
 // clears tags (metadata), nothing is deselected/deleted.
 export async function removeAdHocSection(config, sectionOverrides, grp, onOptimistic) {
   var ids = [grp.id].concat((grp.subGroups || []).map(function(sg){ return sg.id; }));
+  // A dish's tag can be a multi-section array now — only strip the id(s)
+  // that actually point at THIS removed pill, keeping any other tag the
+  // dish separately carries (e.g. an extra pill unrelated to this one),
+  // instead of a bare `delete` that used to only ever match a plain scalar
+  // and silently left an array-valued tag dangling. Caught by adversarial
+  // review. Returns whether anything actually changed.
+  function stripIds(map) {
+    var ch = false;
+    Object.keys(map).forEach(function(name){
+      var cur = normalizeOverrideIds(map[name]);
+      var kept = cur.filter(function(id){ return ids.indexOf(id) === -1; });
+      if (kept.length === cur.length) return;
+      ch = true;
+      if (kept.length === 0) delete map[name]; else map[name] = kept.length === 1 ? kept[0] : kept;
+    });
+    return ch;
+  }
   var next = { ...sectionOverrides };
-  var changed = false;
-  Object.keys(next).forEach(function(name){ if (ids.indexOf(next[name]) >= 0) { delete next[name]; changed = true; } });
+  var changed = stripIds(next);
   if (!changed) return;
   onOptimistic(next);
   try {
     var toWrite = await mergeOverridesForWrite(config, function(fresh){
-      Object.keys(fresh).forEach(function(name){ if (ids.indexOf(fresh[name]) >= 0) delete fresh[name]; });
+      stripIds(fresh);
       return fresh;
     });
     var res = await supabase.from(config.parentTable).update({ menu_section_overrides: toWrite }).eq('id', config.parentIdValue);

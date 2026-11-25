@@ -12,7 +12,7 @@ import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, MENU_PACKAGE_NO_AUTO_OVERRIDES } 
 import { APP_SETTINGS } from '../data/appSettings.js';
 import { detectPackageDiet } from '../utils/helpers.js';
 import { RECIPE_DB, createCustomDishInLibrary, getAllDishes, flattenSectionsToDishes } from '../data/recipeData.js';
-import { resolveOverrideToCatalogueSectionId, buildOverrideResolver } from '../lib/catalogueSection.js';
+import { resolveOverrideToCatalogueSectionId, buildOverrideResolver, normalizeOverrideIds } from '../lib/catalogueSection.js';
 import { SALES_DEPTS, SALES_DEPT_MAP, ITEM_HAVING_DEPTS, DIET_TAGS, DEFAULT_DIET, DEFAULT_DEPT, DEPT_CONFIGS, pinnedDeptForDish } from '../data/salesConfig.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows, dbSubscribe } from '../lib/db.js';
@@ -1032,9 +1032,24 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     // which renames dishes_master's dish_name to .name — NOT the raw
     // getAllDishes() rows (those do use .dish_name).
     (allDishes || []).forEach(function(d){
-      var ov = sectionOverrides && sectionOverrides[d.name];
-      if (ov) { out[d.name] = resolveOv(ov); return; } // '__extras__' and anything unresolved both correctly give null
-      out[d.name] = (d.section_id && byId[d.section_id]) ? d.section_id : null;
+      var raw = sectionOverrides && sectionOverrides[d.name];
+      // A plain single-value tag (string) is a deliberate PLACEMENT, same as
+      // always — it wins over the dish's native section, however it got
+      // there (addCustomDish/addExistingDish's own sectionId, or a single
+      // retag). An ARRAY tag is the newer, purely ADDITIVE multi-section
+      // shape (useMenuItemGrouping.js's groupedByPkgSection / newSectionsByDept
+      // above show the dish under every extra pill in the array) — it never
+      // relocates a dish's canonical sort/print section away from wherever
+      // it already lives, so a dish with a real native section keeps that as
+      // canonical even while also being tagged elsewhere; only a dish with no
+      // native section of its own falls through to its (array) tag's first id.
+      if (!Array.isArray(raw)) {
+        if (raw) { out[d.name] = resolveOv(raw); return; } // '__extras__' and anything unresolved both correctly give null
+        out[d.name] = (d.section_id && byId[d.section_id]) ? d.section_id : null;
+        return;
+      }
+      if (d.section_id && byId[d.section_id]) { out[d.name] = d.section_id; return; }
+      out[d.name] = raw.length > 0 ? resolveOv(raw[0]) : null;
     });
     return out;
   }, [allDishes, sections, sectionOverrides, templateInfo.name]);
@@ -1236,20 +1251,29 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     var out = {}; // deptId -> { sectionId: { name, dishes: [] } }
     Object.keys(sectionOverrides || {}).forEach(function(dishName){
       if (!selectedDishNames.has(dishName)) return; // tagged, never actually added
-      if (pkgBaselineDishNames.has(dishName)) return; // already in the package — relocated, not added
-      var targetId = sectionOverrides[dishName];
-      if (!targetId) return;
-      var sec = (sections || []).find(function(s){ return s.id === targetId; });
-      if (!sec) return; // not a real catalogue section id (e.g. '__extras__')
-      if (pkgCatalogueSectionIds.has(targetId)) return; // part of the package (a linked section or its catalogue subtree) — not ad hoc
-      // Same precedence chain itemsByDept/menuDiffByDept's own `added` use
-      // (effectiveDeptForDish), not just the section's own catalogue dept —
-      // otherwise a new-section dish could print under a different dept
-      // here than the Items tab/kitchen mirror actually place it in.
-      var dept = effectiveDeptForDish(dishName);
-      if (!out[dept]) out[dept] = {};
-      if (!out[dept][targetId]) out[dept][targetId] = { id: targetId, name: sec.name, dishes: [] };
-      out[dept][targetId].dishes.push(dishName);
+      // A package-baseline dish (still part of the package, unchanged) used to
+      // be excluded here entirely ("relocated, not added") — but a tag is now
+      // purely ADDITIVE (see useMenuItemGrouping.js's groupedByPkgSection):
+      // it never relocates a baseline dish away from the package, it only
+      // ALSO shows it under an extra ad hoc pill, e.g. a Rice Factory dish
+      // also tagged to a new "Driver Food" section for this event. Such a
+      // dish must still print under that extra pill too, even though it's
+      // never counted toward addedByDept/menuDiffByDept's "+" additions
+      // above (it's not a new dish — multi-value overrides never reach that
+      // delta logic at all, only this ad hoc-section block).
+      normalizeOverrideIds(sectionOverrides[dishName]).forEach(function(targetId){
+        var sec = (sections || []).find(function(s){ return s.id === targetId; });
+        if (!sec) return; // not a real catalogue section id (e.g. '__extras__')
+        if (pkgCatalogueSectionIds.has(targetId)) return; // part of the package (a linked section or its catalogue subtree) — not ad hoc
+        // Same precedence chain itemsByDept/menuDiffByDept's own `added` use
+        // (effectiveDeptForDish), not just the section's own catalogue dept —
+        // otherwise a new-section dish could print under a different dept
+        // here than the Items tab/kitchen mirror actually place it in.
+        var dept = effectiveDeptForDish(dishName);
+        if (!out[dept]) out[dept] = {};
+        if (!out[dept][targetId]) out[dept][targetId] = { id: targetId, name: sec.name, dishes: [] };
+        if (out[dept][targetId].dishes.indexOf(dishName) === -1) out[dept][targetId].dishes.push(dishName);
+      });
     });
     return out;
   // eslint-disable-next-line
@@ -1854,6 +1878,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
                   onAddCustomDish={addCustomDish}
                   onAddExistingDish={addExistingDish}
                   onRetagDish={saveSectionOverride}
+                  sectionOverrides={sectionOverrides}
                   allDishes={allDishes}
                   catalogueSectionOptions={catalogueSectionOptions}
                   catalogueSectionGroups={catalogueSectionGroups}

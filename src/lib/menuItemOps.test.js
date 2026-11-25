@@ -15,6 +15,8 @@ import { MENU_PACKAGE_NO_AUTO_OVERRIDES } from '../data/menuPackages.js';
 
 var noAutoSectionIds = [];
 var dbCalls = [];
+var freshOverridesRow = {}; // menu_section_overrides the mocked "fresh read" (.select().eq().single()) returns
+var dishesMasterRows = []; // rows addSectionFromLibrary's .select('dish_name').in('section_id', ids).eq(...) returns
 vi.mock('./supabase.js', () => ({
   supabase: {
     from(table) {
@@ -22,8 +24,23 @@ vi.mock('./supabase.js', () => ({
         select() {
           return {
             eq() {
-              if (table !== 'dish_catalogue_sections') return Promise.resolve({ data: [], error: null });
-              return Promise.resolve({ data: noAutoSectionIds.map(function (id) { return { id: id }; }), error: null });
+              return {
+                single() {
+                  return Promise.resolve({ data: { menu_section_overrides: freshOverridesRow }, error: null });
+                },
+                // dish_catalogue_sections' no-auto-select query (filterAutoSeedable)
+                // awaits the eq() call directly, with no .single() — give the
+                // returned object both shapes (then/single) so either caller works.
+                then(resolve) {
+                  if (table !== 'dish_catalogue_sections') { resolve({ data: [], error: null }); return; }
+                  resolve({ data: noAutoSectionIds.map(function (id) { return { id: id }; }), error: null });
+                },
+              };
+            },
+            in() {
+              return {
+                eq() { return Promise.resolve({ data: dishesMasterRows, error: null }); },
+              };
             },
           };
         },
@@ -60,7 +77,7 @@ vi.mock('./supabase.js', () => ({
   },
 }));
 
-const { filterAutoSeedable, loadPackageDefaultItems, computePackageSwitchDiff } = await import('./menuItemOps.js');
+const { filterAutoSeedable, loadPackageDefaultItems, computePackageSwitchDiff, saveSectionOverride, addSectionFromLibrary, removeAdHocSection } = await import('./menuItemOps.js');
 
 const ITEMS_CONFIG = {
   itemsTable: 'event_items', itemsFk: 'event_id', itemsFkValue: 'EVT-1',
@@ -145,7 +162,7 @@ describe('filterAutoSeedable', () => {
 });
 
 describe('loadPackageDefaultItems', () => {
-  beforeEach(() => { dbCalls = []; });
+  beforeEach(() => { dbCalls = []; freshOverridesRow = {}; });
 
   function row(name, extra) { return Object.assign({ dish_name: name, is_addon: false, ordering: 0 }, extra || {}); }
 
@@ -271,5 +288,129 @@ describe('computePackageSwitchDiff', () => {
     expect(computePackageSwitchDiff([], [])).toEqual({ toRemove: [], toAdd: [] });
     expect(computePackageSwitchDiff(null, null)).toEqual({ toRemove: [], toAdd: [] });
     expect(computePackageSwitchDiff(undefined, undefined)).toEqual({ toRemove: [], toAdd: [] });
+  });
+});
+
+describe('saveSectionOverride', () => {
+  beforeEach(() => { dbCalls = []; freshOverridesRow = {}; });
+
+  it('writes a multi-id array value as-is, both optimistically and to the DB', async () => {
+    const onOptimistic = vi.fn();
+    const next = await saveSectionOverride(ITEMS_CONFIG, {}, 'Steam Rice', ['cat-driver-food', 'cat-rice-factory'], onOptimistic);
+    expect(next).toEqual({ 'Steam Rice': ['cat-driver-food', 'cat-rice-factory'] });
+    expect(onOptimistic).toHaveBeenCalledWith({ 'Steam Rice': ['cat-driver-food', 'cat-rice-factory'] });
+    const update = dbCalls.find(c => c.op === 'update');
+    expect(update.fields.menu_section_overrides).toEqual({ 'Steam Rice': ['cat-driver-food', 'cat-rice-factory'] });
+  });
+
+  it('an EMPTY array clears the tag, same as a falsy scalar — it must not be stored as a truthy empty list', async () => {
+    const onOptimistic = vi.fn();
+    const next = await saveSectionOverride(ITEMS_CONFIG, { 'Steam Rice': ['cat-driver-food'] }, 'Steam Rice', [], onOptimistic);
+    expect(next).toEqual({});
+    expect(onOptimistic).toHaveBeenCalledWith({});
+    const update = dbCalls.find(c => c.op === 'update');
+    expect(update.fields.menu_section_overrides).toEqual({});
+  });
+
+  it('a plain scalar id still behaves exactly as before (single-value placement, unaffected by the array support added for multi-tagging)', async () => {
+    const onOptimistic = vi.fn();
+    const next = await saveSectionOverride(ITEMS_CONFIG, {}, 'Custom Dish', 'cat-tandoor', onOptimistic);
+    expect(next).toEqual({ 'Custom Dish': 'cat-tandoor' });
+  });
+
+  it('a falsy scalar still clears the tag as before', async () => {
+    const onOptimistic = vi.fn();
+    const next = await saveSectionOverride(ITEMS_CONFIG, { 'Custom Dish': 'cat-tandoor' }, 'Custom Dish', null, onOptimistic);
+    expect(next).toEqual({});
+  });
+
+  it('merges against a FRESH read of menu_section_overrides, not the stale snapshot passed in — another tag added elsewhere in between survives', async () => {
+    freshOverridesRow = { 'Gajar Halwa': 'cat-desserts' }; // written by someone else since this caller's own sectionOverrides snapshot was taken
+    const onOptimistic = vi.fn();
+    await saveSectionOverride(ITEMS_CONFIG, {}, 'Steam Rice', ['cat-driver-food', 'cat-other'], onOptimistic);
+    const update = dbCalls.find(c => c.op === 'update');
+    expect(update.fields.menu_section_overrides).toEqual({ 'Gajar Halwa': 'cat-desserts', 'Steam Rice': ['cat-driver-food', 'cat-other'] });
+  });
+
+  it('a 1-item array collapses to a plain scalar — byte-identical shape to the original single-value behavior', async () => {
+    const next = await saveSectionOverride(ITEMS_CONFIG, {}, 'Custom Dish', ['cat-tandoor'], vi.fn());
+    expect(next).toEqual({ 'Custom Dish': 'cat-tandoor' });
+  });
+});
+
+describe('addSectionFromLibrary', () => {
+  beforeEach(() => { dbCalls = []; freshOverridesRow = {}; dishesMasterRows = []; });
+
+  it('bulk-tags every dish found under the catalogue section to the target pill', async () => {
+    dishesMasterRows = [{ dish_name: 'Hummus' }, { dish_name: 'Shawarma' }];
+    const onOptimistic = vi.fn();
+    await addSectionFromLibrary(ITEMS_CONFIG, {}, 'cat-lebanese', 'cat-lebanese', [], onOptimistic);
+    expect(onOptimistic).toHaveBeenCalledWith({ 'Hummus': 'cat-lebanese', 'Shawarma': 'cat-lebanese' });
+  });
+
+  it('ADDS to a dish\'s existing multi-section tag instead of clobbering it — caught by adversarial review', async () => {
+    dishesMasterRows = [{ dish_name: 'Steam Rice' }];
+    const onOptimistic = vi.fn();
+    const existing = { 'Steam Rice': ['cat-driver-food'] };
+    await addSectionFromLibrary(ITEMS_CONFIG, existing, 'cat-rice-factory', 'cat-rice-factory', [], onOptimistic);
+    expect(onOptimistic).toHaveBeenCalledWith({ 'Steam Rice': ['cat-driver-food', 'cat-rice-factory'] });
+  });
+
+  it('does not duplicate a tag the dish already carries', async () => {
+    dishesMasterRows = [{ dish_name: 'Steam Rice' }];
+    const onOptimistic = vi.fn();
+    const existing = { 'Steam Rice': 'cat-rice-factory' };
+    await addSectionFromLibrary(ITEMS_CONFIG, existing, 'cat-rice-factory', 'cat-rice-factory', [], onOptimistic);
+    expect(onOptimistic).toHaveBeenCalledWith({ 'Steam Rice': 'cat-rice-factory' });
+  });
+
+  it('no dishes found under the catalogue section is a no-op (no write at all)', async () => {
+    dishesMasterRows = [];
+    const onOptimistic = vi.fn();
+    await addSectionFromLibrary(ITEMS_CONFIG, {}, 'cat-empty', 'cat-empty', [], onOptimistic);
+    expect(onOptimistic).not.toHaveBeenCalled();
+    expect(dbCalls.length).toBe(0);
+  });
+});
+
+describe('removeAdHocSection', () => {
+  beforeEach(() => { dbCalls = []; freshOverridesRow = {}; });
+
+  it('clears a plain scalar tag pointing at the removed pill, same as before', async () => {
+    const onOptimistic = vi.fn();
+    await removeAdHocSection(ITEMS_CONFIG, { 'Hummus': 'cat-lebanese' }, { id: 'cat-lebanese' }, onOptimistic);
+    expect(onOptimistic).toHaveBeenCalledWith({});
+  });
+
+  it('strips only the removed pill\'s id out of a multi-section array, keeping the dish\'s OTHER tag(s) — caught by adversarial review', async () => {
+    const onOptimistic = vi.fn();
+    await removeAdHocSection(ITEMS_CONFIG, { 'Steam Rice': ['cat-driver-food', 'cat-rice-factory', 'cat-third'] }, { id: 'cat-driver-food' }, onOptimistic);
+    expect(onOptimistic).toHaveBeenCalledWith({ 'Steam Rice': ['cat-rice-factory', 'cat-third'] });
+  });
+
+  it('collapses to a plain scalar when only one id of a multi-section array survives', async () => {
+    const onOptimistic = vi.fn();
+    await removeAdHocSection(ITEMS_CONFIG, { 'Steam Rice': ['cat-driver-food', 'cat-rice-factory'] }, { id: 'cat-driver-food' }, onOptimistic);
+    const written = onOptimistic.mock.calls[0][0];
+    expect(written['Steam Rice']).toBe('cat-rice-factory'); // scalar, not ['cat-rice-factory']
+  });
+
+  it('removing a pill that matches none of a multi-tagged dish\'s ids leaves it untouched', async () => {
+    const onOptimistic = vi.fn();
+    await removeAdHocSection(ITEMS_CONFIG, { 'Steam Rice': ['cat-driver-food', 'cat-rice-factory'] }, { id: 'cat-unrelated' }, onOptimistic);
+    expect(onOptimistic).not.toHaveBeenCalled();
+  });
+
+  it('includes subGroup ids in what gets stripped, same as before', async () => {
+    const onOptimistic = vi.fn();
+    const grp = { id: 'cat-main', subGroups: [{ id: 'cat-main-sub' }] };
+    await removeAdHocSection(ITEMS_CONFIG, { 'Dal': ['cat-main-sub', 'cat-extra'] }, grp, onOptimistic);
+    expect(onOptimistic).toHaveBeenCalledWith({ 'Dal': 'cat-extra' });
+  });
+
+  it('nothing tagged to the removed pill at all is a no-op', async () => {
+    const onOptimistic = vi.fn();
+    await removeAdHocSection(ITEMS_CONFIG, { 'Hummus': 'cat-other' }, { id: 'cat-lebanese' }, onOptimistic);
+    expect(onOptimistic).not.toHaveBeenCalled();
   });
 });

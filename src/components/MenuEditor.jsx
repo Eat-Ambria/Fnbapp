@@ -205,7 +205,13 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
     var bySecId = {};
     var extras = [];
     displayNames.forEach(function(name) {
-      var secId = dishToNativeSection[name] || sectionOverrides[name] || null;
+      var ov = sectionOverrides[name];
+      // A multi-section tag (array — see useMenuItemGrouping.js's
+      // groupedByPkgSection) isn't rendered as multiple pills in THIS editor;
+      // take its first id so a dish never vanishes or buckets under a bogus
+      // stringified-array key here.
+      if (Array.isArray(ov)) ov = ov[0] || null;
+      var secId = dishToNativeSection[name] || ov || null;
       if (secId) { if (!bySecId[secId]) bySecId[secId] = []; bySecId[secId].push(name); }
       else extras.push(name);
     });
@@ -599,7 +605,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
                           🏷 {explicitCat ? catName(explicitCat) : T2('Uncategorized')}
                         </button>
                         {g.isExtras && pkgGroups && onSectionOverridesChange && (
-                          <select value={sectionOverrides[name] || ''} onClick={function(e) { e.stopPropagation(); }}
+                          <select value={(Array.isArray(sectionOverrides[name]) ? sectionOverrides[name][0] : sectionOverrides[name]) || ''} onClick={function(e) { e.stopPropagation(); }}
                             onChange={function(e) { onSectionOverridesChange({ ...sectionOverrides, [name]: e.target.value || undefined }); }}
                             title={T2('Tag which package section this shows under (this event only)')}
                             style={{ fontSize: 10, padding: "2px 4px", borderRadius: 5, border: "1px solid " + C.greenBorder, color: C.green, background: C.surface, marginRight: 8, maxWidth: 110 }}>

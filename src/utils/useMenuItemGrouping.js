@@ -32,6 +32,7 @@ import { RECIPE_DB, getAllDishes, getCatIdForDish, resolveDishHindi, onDishDataC
 import { MENU_PACKAGE_SECTIONS } from '../data/menuPackages.js';
 import { DEFAULT_DEPT, DEFAULT_DIET, pinnedDeptForDish } from '../data/salesConfig.js';
 import { resolveDeptForOverrideTarget } from '../lib/sectionDept.js';
+import { normalizeOverrideIds } from '../lib/catalogueSection.js';
 
 // A dish's diet tag: explicit sales_items_meta.diet_tag wins; otherwise fall
 // back to the dish library's veg/non-veg classification (dishes_master.is_veg)
@@ -271,7 +272,13 @@ export function useMenuItemGrouping(params) {
     var m = {};
     Object.keys(sectionOverrides || {}).forEach(function(name){
       var targetId = sectionOverrides[name];
-      if (!targetId) return;
+      // An array-valued tag is the newer, purely ADDITIVE multi-section shape
+      // (groupedByPkgSection/newSectionsByDept show the dish under an extra
+      // pill, display-only) — it must never reroute a dish's real department
+      // (Store ordering, kitchen tracking, the mirror sync), so it's skipped
+      // here entirely; only a plain single-value tag (a genuine placement,
+      // same as always) affects dept resolution.
+      if (!targetId || Array.isArray(targetId)) return;
       var dept = resolveDeptForOverrideTarget(targetId, pkgSecs, sections);
       if (dept) m[name] = dept;
     });
@@ -764,58 +771,72 @@ export function useMenuItemGrouping(params) {
     visibleDishes.forEach(function(d){ visibleDeptSet[d.name] = true; });
 
     var newGroups = {}; // targetId -> group, built once, appended after
+    // A dish can be natively pooled by its own package section (already
+    // `consumed`) AND separately tagged, via sectionOverrides, to show under
+    // one or more OTHER pills too (e.g. Steam Rice stays in Rice Factory —
+    // that pooling above is untouched — but is ALSO tagged to an ad hoc
+    // "Driver Food" pill). A tag is therefore purely ADDITIVE: it never
+    // removes a dish from wherever it was naturally placed, it only ever
+    // places it into MORE pills. This loop used to bail out immediately on
+    // `consumed[name]` and so silently ignored a tag on any already-placed
+    // dish — fixed by dropping that early return and instead letting each
+    // of a (possibly multi-valued) tag's target ids add the dish into its
+    // own pill, independently of whatever already-natural placement exists.
     Object.keys(sectionOverrides || {}).forEach(function(name){
-      if (consumed[name]) return;
-      var targetId = sectionOverrides[name];
-      if (!targetId) return;
-      var targetDept = deptForTargetId(targetId);
-      if (targetDept) {
-        if (targetDept !== activeDept) return; // belongs to a different department tab entirely
-      } else if (!visibleDeptSet[name]) {
-        return; // no dept info from the target itself — dish isn't native to this tab
-      }
+      var targetIds = normalizeOverrideIds(sectionOverrides[name]);
+      if (targetIds.length === 0) return;
       var d = byExact[name] || byLoose[(name || '').toLowerCase().trim()];
       if (!d) return; // not currently visible (filtered by search/diet/showAddons)
-      var placed = out.some(function(g){
-        if (g.subGroups) {
-          var sg = g.subGroups.find(function(x){ return x.id === targetId; });
-          if (sg) { sg.dishes = sg.dishes.concat([d]); return true; }
-          if (g.id === targetId) {
-            // Target IS this group, but it renders via subGroups only (a flat
-            // g.dishes push would be invisible) — give it a shared "Other"
-            // bucket, same id convention the pooling above already uses.
-            var other = g.subGroups.find(function(x){ return x.id === g.id + '__unplaced'; });
-            if (!other) { other = { id: g.id + '__unplaced', name: T2('Other'), dishes: [] }; g.subGroups.push(other); }
-            other.dishes = other.dishes.concat([d]);
-            return true;
-          }
-          return false;
+      var placedAny = false;
+      targetIds.forEach(function(targetId){
+        var targetDept = deptForTargetId(targetId);
+        if (targetDept) {
+          if (targetDept !== activeDept) return; // this tag belongs to a different department tab entirely
+        } else if (!visibleDeptSet[name]) {
+          return; // no dept info from the target itself — dish isn't native to this tab
         }
-        if (g.id === targetId) { g.dishes = g.dishes.concat([d]); return true; }
-        return false;
+        var placed = out.some(function(g){
+          if (g.subGroups) {
+            var sg = g.subGroups.find(function(x){ return x.id === targetId; });
+            if (sg) { if (sg.dishes.indexOf(d) === -1) sg.dishes = sg.dishes.concat([d]); return true; }
+            if (g.id === targetId) {
+              // Target IS this group, but it renders via subGroups only (a flat
+              // g.dishes push would be invisible) — give it a shared "Other"
+              // bucket, same id convention the pooling above already uses.
+              var other = g.subGroups.find(function(x){ return x.id === g.id + '__unplaced'; });
+              if (!other) { other = { id: g.id + '__unplaced', name: T2('Other'), dishes: [] }; g.subGroups.push(other); }
+              if (other.dishes.indexOf(d) === -1) other.dishes = other.dishes.concat([d]);
+              return true;
+            }
+            return false;
+          }
+          if (g.id === targetId) { if (g.dishes.indexOf(d) === -1) g.dishes = g.dishes.concat([d]); return true; }
+          return false;
+        });
+        if (placed) { placedAny = true; return; }
+        if (!newGroups[targetId]) {
+          var opt = (catalogueSectionOptions || []).find(function(o){ return o.id === targetId; });
+          // A whole catalogue section added ad hoc can itself have subsections;
+          // pool the same subGroups shape the main package-section loop above
+          // builds, bucketing each tagged dish by its own catalogue section_id,
+          // instead of one flat unlabeled list.
+          var subs = catSubsByParent[targetId] || [];
+          var subGroupsNew = subs.length > 0
+            ? subs.map(function(sub){ return { id: sub.id, name: sub.name, dishes: [] }; }).concat([{ id: targetId + '__unplaced', name: T2('Other'), dishes: [] }])
+            : null;
+          // targetId IS a catalogue section id here, so an ad-hoc section nests
+          // under its library parent like any other.
+          newGroups[targetId] = { id: targetId, name: opt ? opt.label.replace(/^—\s*/, '') : targetId, icon: '📚', catSectionId: targetId, dishes: [], subGroups: subGroupsNew, isAdHoc: true };
+        }
+        var ng = newGroups[targetId];
+        if (ng.dishes.indexOf(d) === -1) ng.dishes.push(d);
+        if (ng.subGroups) {
+          var destSg = ng.subGroups.find(function(sg2){ return sg2.id === d.section_id; }) || ng.subGroups[ng.subGroups.length - 1];
+          if (destSg.dishes.indexOf(d) === -1) destSg.dishes.push(d);
+        }
+        placedAny = true;
       });
-      if (placed) { consumed[name] = true; return; }
-      if (!newGroups[targetId]) {
-        var opt = (catalogueSectionOptions || []).find(function(o){ return o.id === targetId; });
-        // A whole catalogue section added ad hoc can itself have subsections;
-        // pool the same subGroups shape the main package-section loop above
-        // builds, bucketing each tagged dish by its own catalogue section_id,
-        // instead of one flat unlabeled list.
-        var subs = catSubsByParent[targetId] || [];
-        var subGroupsNew = subs.length > 0
-          ? subs.map(function(sub){ return { id: sub.id, name: sub.name, dishes: [] }; }).concat([{ id: targetId + '__unplaced', name: T2('Other'), dishes: [] }])
-          : null;
-        // targetId IS a catalogue section id here, so an ad-hoc section nests
-        // under its library parent like any other.
-        newGroups[targetId] = { id: targetId, name: opt ? opt.label.replace(/^—\s*/, '') : targetId, icon: '📚', catSectionId: targetId, dishes: [], subGroups: subGroupsNew, isAdHoc: true };
-      }
-      var ng = newGroups[targetId];
-      ng.dishes.push(d);
-      if (ng.subGroups) {
-        var destSg = ng.subGroups.find(function(sg2){ return sg2.id === d.section_id; }) || ng.subGroups[ng.subGroups.length - 1];
-        destSg.dishes.push(d);
-      }
-      consumed[name] = true;
+      if (placedAny) consumed[name] = true;
     });
     Object.keys(newGroups).forEach(function(id){
       var g = newGroups[id];
@@ -830,11 +851,12 @@ export function useMenuItemGrouping(params) {
     // its fallback native dept happens to be the one showing.
     var leftover = visibleDishes.filter(function(d){
       if (consumed[d.name]) return false;
-      var ov = sectionOverrides && sectionOverrides[d.name];
-      if (ov) {
-        var ovDept = deptForTargetId(ov);
-        if (ovDept && ovDept !== activeDept) return false;
-      }
+      var ovIds = normalizeOverrideIds(sectionOverrides && sectionOverrides[d.name]);
+      var belongsElsewhere = ovIds.some(function(ovId){
+        var ovDept = deptForTargetId(ovId);
+        return ovDept && ovDept !== activeDept;
+      });
+      if (belongsElsewhere) return false;
       return true;
     });
     extrasGroup.dishes = extrasGroup.dishes.concat(leftover);
