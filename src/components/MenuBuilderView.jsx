@@ -1569,7 +1569,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
                   {alreadySelected ? T2("Also show under these sections") : T2("Menu section")}
                 </div>
                 {alreadySelected ? (
-                  <SectionPillPicker groups={placementGroups} value={pendingCustom.extraTagIds || []} multiSelect
+                  <SectionPillPicker groups={placementGroups} value={pendingCustom.extraTagIds || []} multiSelect searchable
                     onChange={function(id){ setPendingCustom(function(p){
                       var cur = p.extraTagIds || [];
                       var next = cur.indexOf(id) === -1 ? cur.concat([id]) : cur.filter(function(x){ return x !== id; });
@@ -1577,7 +1577,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
                     }); }}
                     T2={T2} accent={C.wine} />
                 ) : (
-                  <SectionPillPicker groups={placementGroups} value={pendingCustom.sectionId}
+                  <SectionPillPicker groups={placementGroups} value={pendingCustom.sectionId} searchable
                     onChange={function(id){ setPendingCustom(function(p){ return { ...p, sectionId: id }; }); }}
                     T2={T2} accent={C.wine} />
                 )}
@@ -1613,7 +1613,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
               <div style={{ padding: "10px 12px", borderRadius: 8, background: C.bg, fontSize: 12, color: C.muted, marginBottom: 16 }}>{T2("No catalogue sections routed to this department.")}</div>
             )}
             {catalogueSectionGroups && catalogueSectionGroups.length > 0 && (
-              <SectionPillPicker groups={catalogueSectionGroups} value={pendingSection.catSectionId}
+              <SectionPillPicker groups={catalogueSectionGroups} value={pendingSection.catSectionId} searchable
                 // Defaults the placement to a brand-new pill matching this
                 // catalogue section — NOT whatever tab happens to be active —
                 // so picking "Pre Dining Live" doesn't silently dump its

@@ -11,11 +11,18 @@
 // single id, every click TOGGLES that one id's membership (never replaces
 // or collapses the rest), and there's no "Clear" pill — removing a tag is
 // just un-ticking it.
+//
+// searchable: shows a small text filter above the pills — a long list (every
+// catalogue section, say) is slow to scan by eye. Typing narrows the TOP
+// pills to ones whose own name matches, OR that have at least one matching
+// subsection (kept, filtered down to just the matches); a hit on a
+// subsection's name auto-opens its parent so the match is visible with no
+// extra click.
 import React, { useState, useEffect } from "react";
 import { C } from '../data/constants.js';
 
 // groups: [{ id, name, count?, subs: [{ id, name, count? }] }]
-export function SectionPillPicker({ groups, value, onChange, T2, accent, allowClear = true, clearLabel, multiSelect = false }) {
+export function SectionPillPicker({ groups, value, onChange, T2, accent, allowClear = true, clearLabel, multiSelect = false, searchable = false }) {
   var color = accent || C.wine;
   var ownerOf = {};
   (groups || []).forEach(function (g) {
@@ -34,7 +41,24 @@ export function SectionPillPicker({ groups, value, onChange, T2, accent, allowCl
   // eslint-disable-next-line
   }, [value]);
 
-  var openGroup = (groups || []).find(function (g) { return g.id === openId; });
+  var [query, setQuery] = useState('');
+  var qLower = query.trim().toLowerCase();
+  function filterGroup(g) {
+    if (!qLower) return g;
+    var selfMatch = (g.name || '').toLowerCase().includes(qLower);
+    if (selfMatch) return g; // parent itself matched — keep every one of its subs too
+    var matchedSubs = (g.subs || []).filter(function (s) { return (s.name || '').toLowerCase().includes(qLower); });
+    return matchedSubs.length > 0 ? { ...g, subs: matchedSubs } : null;
+  }
+  var visibleGroups = qLower ? (groups || []).map(filterGroup).filter(Boolean) : (groups || []);
+  useEffect(function () {
+    if (!qLower) return;
+    var firstWithSubs = visibleGroups.find(function (g) { return g.subs && g.subs.length > 0; });
+    if (firstWithSubs) setOpenId(firstWithSubs.id);
+  // eslint-disable-next-line
+  }, [query]);
+
+  var openGroup = (qLower ? visibleGroups : (groups || [])).find(function (g) { return g.id === openId; });
 
   function pillStyle(active) {
     return {
@@ -44,13 +68,24 @@ export function SectionPillPicker({ groups, value, onChange, T2, accent, allowCl
     };
   }
 
+  var searchBox = searchable && (
+    <input value={query} onChange={function (e) { setQuery(e.target.value); }}
+      placeholder={T2('Search sections…')}
+      style={{ display: "block", width: "100%", maxWidth: 260, padding: "6px 10px", marginBottom: 10,
+        borderRadius: 8, border: "1px solid " + C.border, fontSize: 12.5, color: C.text, background: C.surface, boxSizing: "border-box" }} />
+  );
+
   if (multiSelect) {
     var selectedIds = value || [];
     var isChecked = function (id) { return selectedIds.indexOf(id) !== -1; };
     return (
       <div>
+        {searchBox}
+        {qLower && visibleGroups.length === 0 && (
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>{T2('No sections match')} "{query}"</div>
+        )}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: openGroup ? 8 : 18 }}>
-          {(groups || []).map(function (g) {
+          {visibleGroups.map(function (g) {
             var hasSubs = g.subs && g.subs.length > 0;
             var isOpen = openId === g.id;
             var checked = isChecked(g.id);
@@ -97,8 +132,12 @@ export function SectionPillPicker({ groups, value, onChange, T2, accent, allowCl
 
   return (
     <div>
+      {searchBox}
+      {qLower && visibleGroups.length === 0 && (
+        <div style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>{T2('No sections match')} "{query}"</div>
+      )}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: openGroup ? 8 : 18 }}>
-        {(groups || []).map(function (g) {
+        {visibleGroups.map(function (g) {
           var hasSubs = g.subs && g.subs.length > 0;
           var isOpen = openId === g.id;
           var isActive = value === g.id || isOpen;

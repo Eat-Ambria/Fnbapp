@@ -661,7 +661,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
             {pkgSectionTree && (
               <>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("Menu section")} <span style={{ fontWeight: 400, textTransform: "none", color: C.faint }}>({T2("this event only")})</span></div>
-                <SectionPillPicker groups={pkgSectionTree} value={pendingCustom.sectionId}
+                <SectionPillPicker groups={pkgSectionTree} value={pendingCustom.sectionId} searchable
                   onChange={function(id) { setPendingCustom(function(p) { return { ...p, sectionId: id }; }); }}
                   T2={T2} accent={C.wine} />
               </>
