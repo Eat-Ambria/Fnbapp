@@ -227,6 +227,16 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
   // saveForm needs this to tell whether the ODC Menu Editor was actually
   // touched in this modal session (see saveForm's menuEditorTouched).
   const [origMenuEditorDishes, setOrigMenuEditorDishes] = useState([]);
+  // Guards the window saveForm now spends awaiting filterAutoSeedable's real
+  // network round-trip — found by adversarial review: with no guard, a
+  // double-click, a Cancel click, or opening a DIFFERENT event's edit modal
+  // while that await was still pending all raced the in-flight save (two
+  // duplicate events; a "cancel" that didn't actually cancel; a pending
+  // save's trailing resets silently closing/clobbering the NEW modal that
+  // had since been opened for a different event). Disabling Save AND
+  // Cancel/close while this is true blocks every one of those at the root —
+  // the modal simply can't be left or re-submitted until the save settles.
+  const [savingEvent, setSavingEvent] = useState(false);
   // The unconfirmed-menu list is a sortable, filterable, paged table now, so it
   // carries the state a table needs. Timeframe replaces the three collapsible
   // buckets: they hid most of the list behind two closed headers.
@@ -385,13 +395,34 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
   }
   function openAdd(dt){setForm({guest:"",venue:"Ambria Pushpanjali",date:dt||"",time:"7:30 PM",type:"Wedding",pax:"",veg:"",nonveg:"",menuPackage:"",menu:"",special:"",odc_location:"",odc_address:"",odc_contact_phone:"",odc_lead:"Gopal",site_recce:"Not done",external_caterer:false,external_caterer_name:""});setOrigForm(null);setEditId(null);setShowMenuEditor(false);setMenuEditorDishes([]);setOrigMenuEditorDishes([]);setShowForm(true);}
   function openEdit(ev){const mp=ev.menuPackage||"";const resolvedPkg=MENU_PACKAGES[mp]?mp:"(Custom)";const evIsODC=ev.venue==="Outdoor Catering (ODC)";const f={guest:ev.guest||"",venue:ev.venue||"Ambria Pushpanjali",date:ev.date||"",time:ev.time||"7:30 PM",type:ev.type||"Wedding",pax:String(ev.pax||""),veg:String(ev.veg||""),nonveg:String(ev.nonveg||""),menuPackage:mp&&MENU_PACKAGES[mp]?mp:"",menu:resolvedPkg==="(Custom)"?(ev.menu||[]).join(", "):"",special:ev.special||"",odc_location:ev.odc_location||"",odc_address:ev.odc_address||"",odc_contact_phone:ev.odc_contact_phone||"",odc_lead:ev.odc_lead||"Gopal",site_recce:ev.site_recce||"Not done",external_caterer:!!ev.external_caterer,external_caterer_name:ev.external_caterer_name||""};const med=Array.isArray(ev.menu)?[...ev.menu]:[];setForm(f);setOrigForm(f);setEditId(ev.id);setShowMenuEditor(evIsODC);setMenuEditorDishes(med);setOrigMenuEditorDishes(med);setShowForm(true);}
-  function saveForm(){
-    if(!form.guest||!form.date||!form.pax)return;
+  async function saveForm(){
+    if(!form.guest||!form.date||!form.pax||savingEvent)return;
+    setSavingEvent(true);
+    try{
     const formIsODC = form.venue==="Outdoor Catering (ODC)";
-    // For ODC with MenuEditor open, use menuEditorDishes; otherwise standard logic
+    // For ODC with MenuEditor open, use menuEditorDishes; otherwise standard
+    // logic. A package's dish list is run through filterAutoSeedable here —
+    // same as every other "assign this package's dishes" path already does
+    // (loadPackageDefaults, syncEventItemsOnPackageChange) — instead of the
+    // raw, unfiltered MENU_PACKAGES[...] list. Found by user report: this was
+    // the one remaining path writing a package's COMPLETE raw dish list
+    // (Soup-Station-style "pick 2-3 of 8-10" choices included) straight into
+    // events.menu. For a brand-new event, event_items is empty and
+    // event_items_initialized is false, so the Items tab's own one-time
+    // legacy-menu migration (EventMenuBuilderView.jsx's
+    // seedFromLegacyMenuIfNeeded) finds this non-empty events.menu and
+    // copies it VERBATIM into event_items — it only ever applies
+    // filterAutoSeedable itself when events.menu was empty, since a non-empty
+    // legacy menu is otherwise assumed to be an already-curated, deliberate
+    // selection that must not be re-filtered. That assumption doesn't hold
+    // for a value THIS form just wrote moments ago, which was never curated
+    // by anyone — so every never-auto-select dish in the package silently
+    // ended up pre-selected the very first time the Items tab was opened.
     const mi = formIsODC && showMenuEditor && menuEditorDishes.length > 0
       ? menuEditorDishes
-      : (form.menuPackage && MENU_PACKAGES[form.menuPackage] ? MENU_PACKAGES[form.menuPackage] : (form.menu||"").split(",").map(s=>s.trim()).filter(Boolean));
+      : form.menuPackage && MENU_PACKAGES[form.menuPackage]
+        ? await filterAutoSeedable(MENU_PACKAGES[form.menuPackage], form.menuPackage)
+        : (form.menu||"").split(",").map(s=>s.trim()).filter(Boolean);
     const d = {...form, pax:+form.pax, veg:+form.veg||0, nonveg:+form.nonveg||0, menu:mi,
       external_caterer_name: form.external_caterer ? (form.external_caterer_name||null) : null,
       ...(formIsODC ? {odc_location:form.odc_location, odc_address:form.odc_address, odc_contact_phone:form.odc_contact_phone, odc_lead:form.odc_lead, site_recce:form.site_recce, odc_menu_confirmed:mi.length>0} : {})
@@ -429,6 +460,7 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
       if(form.menuPackage&&form.menuPackage!==prevPkg&&MENU_PACKAGES[form.menuPackage]) syncEventItemsOnPackageChange(editId,prevPkg,form.menuPackage);
     }else{const nid=genId();setEvents(p=>[...(p||[]),{id:nid,...d,extras:[]}]);logActivity('system','Event created: '+form.guest+' ('+nid+')','event_create',{evId:nid,guest:form.guest,venue:form.venue,date:form.date,pax:+form.pax},currentUser?.id);}
     setShowForm(false);setShowMenuEditor(false);setMenuEditorDishes([]);setOrigMenuEditorDishes([]);setEditId(null);setOrigForm(null);
+    }finally{setSavingEvent(false);}
   }
   function delEv(id){const ev=(events||[]).find(e=>e.id===id);setEvents(p=>(p||[]).filter(e=>e.id!==id));logActivity('system','Event deleted: '+(ev?.guest||id)+' ('+id+')','event_delete',{evId:id,guest:ev?.guest||''},currentUser?.id);setDeleteId(null);}
 
@@ -554,10 +586,11 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
                   </div>
                 </div>
               </div>
-              <button onClick={()=>{setShowForm(false);setShowMenuEditor(false);setEditId(null);}}
+              <button onClick={()=>{if(savingEvent)return;setShowForm(false);setShowMenuEditor(false);setEditId(null);}}
+                disabled={savingEvent}
                 aria-label={T2("Close")} className="kh-calnav"
                 style={{background:"#FFFFFF",border:`1px solid ${K.cardWarmLine}`,borderRadius:999,
-                  cursor:"pointer",color:K.hdrMeta,padding:9,display:"flex",flexShrink:0}}>
+                  cursor:savingEvent?"not-allowed":"pointer",color:K.hdrMeta,padding:9,display:"flex",flexShrink:0,opacity:savingEvent?0.5:1}}>
                 <Icon name="close" size={16} strokeWidth={2.2}/>
               </button>
             </div>
@@ -649,20 +682,21 @@ function Dashboard({events,setEvents,kitchenTracking,lang="en",currentUser=null,
                       {T2("Still needed")}: {missing.join(", ")}
                     </span>
                   )}
-                  <button onClick={()=>{setShowForm(false);setShowMenuEditor(false);setEditId(null);}}
+                  <button onClick={()=>{if(savingEvent)return;setShowForm(false);setShowMenuEditor(false);setEditId(null);}}
+                    disabled={savingEvent}
                     className="kh-calnav"
                     style={{padding:"11px 22px",borderRadius:999,background:"#FFFFFF",
                       border:`1px solid ${K.cardWarmLine}`,color:K.textBody,fontFamily:K.fontBody,
-                      fontSize:13,fontWeight:600,cursor:"pointer"}}>{T2("Cancel")}</button>
-                  <button onClick={saveForm} disabled={blocked}
-                    className={blocked?undefined:"kh-rip"} onPointerDown={ripple}
+                      fontSize:13,fontWeight:600,cursor:savingEvent?"not-allowed":"pointer",opacity:savingEvent?0.5:1}}>{T2("Cancel")}</button>
+                  <button onClick={saveForm} disabled={blocked||savingEvent}
+                    className={(blocked||savingEvent)?undefined:"kh-rip"} onPointerDown={ripple}
                     style={{display:"inline-flex",alignItems:"center",gap:8,padding:"11px 24px",borderRadius:999,
-                      background:blocked?"#F0EEE7":K.brand,color:blocked?K.textFaint:"#FFFFFF",
-                      border:`1px solid ${blocked?K.cardWarmLine:K.brand}`,
+                      background:(blocked||savingEvent)?"#F0EEE7":K.brand,color:(blocked||savingEvent)?K.textFaint:"#FFFFFF",
+                      border:`1px solid ${(blocked||savingEvent)?K.cardWarmLine:K.brand}`,
                       fontFamily:K.fontBody,fontSize:13,fontWeight:600,
-                      cursor:blocked?"not-allowed":"pointer"}}>
+                      cursor:(blocked||savingEvent)?"not-allowed":"pointer"}}>
                     <Icon name="check" size={15} strokeWidth={2.2}/>
-                    {editId?T2("Save changes"):T2("Add function")}
+                    {savingEvent?T2("Saving…"):editId?T2("Save changes"):T2("Add function")}
                   </button>
                 </div>
                 );

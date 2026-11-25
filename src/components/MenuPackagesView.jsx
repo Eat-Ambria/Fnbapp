@@ -17,6 +17,7 @@ import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import { getCateringStoreItemsCached } from '../lib/opsSupabase.js';
 import { overridesWithoutOldPackageLocalIds } from '../lib/menuSectionOverrides.js';
+import { filterAutoSeedable } from '../lib/menuItemOps.js';
 import { MenuEditor } from './MenuEditor.jsx';
 import { EventMenuBuilderView } from './EventMenuBuilderView.jsx';
 import DishLibrary from './DishLibrary.jsx';
@@ -295,7 +296,7 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     }
   }
 
-  function commitMenu(dishes, delta) {
+  async function commitMenu(dishes, delta) {
     // Used to clear menuPackage entirely on every save — so swapping even one
     // dish in a "Luxury Veg" function turned it into a bare "Custom" menu
     // everywhere (Dashboard, Dept Ops, Transport), losing the base package
@@ -310,6 +311,19 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
     // Functions showing the old package name forever even though menu/
     // event_items correctly moved to the new package's dishes.
     var isPackageSwitch = delta && delta.action === 'package';
+    // "Quick start from package" hands in the package's COMPLETE raw dish
+    // list (MenuEditor.jsx) — Soup-Station-style "pick 2-3 of 8-10" choices
+    // included. Every OTHER "assign this package's dishes" path
+    // (Dashboard.jsx's Add/Edit Event form, its own syncEventItemsOnPackageChange,
+    // EventMenuBuilderView's loadPackageDefaults/legacy seed) runs that list
+    // through filterAutoSeedable first; this bulk-replace was the one
+    // remaining path that didn't, so a dish flagged "never auto-select" for
+    // this package still landed straight in events.menu AND (via
+    // syncEventItemsFromKitchenMenu below) event_items the moment someone
+    // quick-started a package here — the exact same bug class as the
+    // Dashboard.jsx fix right above, just reached through Kitchen's Build
+    // Menu tab instead of the Add/Edit Event form.
+    if (isPackageSwitch) dishes = await filterAutoSeedable(dishes, delta.pkgName);
     var eventId = selEv.id;
     // Captured before the optimistic update below, so a confirmed background
     // write failure can put the event's menu/menuPackage back the way it was
