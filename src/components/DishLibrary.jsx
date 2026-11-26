@@ -15,7 +15,8 @@ import {
   resolveDishHindi, upsertDishHindi, DISH_HINDI_MAP,
   resolveDishStore, upsertDishStoreMap, DISH_STORE_MAP,
   DISH_NAME_MAP, packagesContainingDish, findRecipeForDish,
-  getSectionsForPackage, setPackageSections, getCatIdForDish
+  getSectionsForPackage, setPackageSections, getCatIdForDish,
+  onDishDataChange
 } from '../data/recipeData.js';
 import { MENU_PACKAGES } from '../data/menuPackages.js';
 import { supabase } from '../lib/supabase.js';
@@ -235,6 +236,19 @@ function DishLibrary(props) {
   var [dedupSavingIdx, setDedupSavingIdx] = useState(null); // idx currently merging
   function clusterKey(c) { return (c.dishes || []).map(function(d){ return d.dish_name; }).slice().sort().join('|'); }
   useEffect(function(){ saveDedupDecisions(dedupSkipped, dedupResolved); }, [dedupSkipped, dedupResolved]);
+
+  // Live-refresh the library whenever DISH_MASTER / RECIPE_DB / DISH_HINDI_MAP /
+  // DISH_NAME_MAP / DISH_CAT_MAP / DISH_STORE_MAP change from anywhere — a
+  // DishMappingModal save elsewhere in the app, a Supabase realtime row, or a
+  // write that only called upsertDishMaster without bumping localBump itself.
+  // recipeData.js fires onDishDataChange AFTER it has already patched its maps
+  // in-place, so by the time this bump re-runs the enriched useMemo, getAllDishes
+  // returns the fresh snapshot.
+  useEffect(function() {
+    return onDishDataChange(function() {
+      setLocalBump(function(n) { return n + 1; });
+    });
+  }, []);
 
   // ── Data ─────────────────────────────────────────────────────────
   var enriched = useMemo(function() {

@@ -5,7 +5,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, MENU_PACKAGE_NO_AUTO_OVERRIDES, MENU_PACKAGE_ALT_GROUP_OVERRIDES, refreshMenuPackages, describeEventMenu } from '../data/menuPackages.js';
-import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster, resolveDishVeg, createCustomDishInLibrary } from '../data/recipeData.js';
+import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster, resolveDishVeg, createCustomDishInLibrary, onDishDataChange } from '../data/recipeData.js';
 import { buildCsvImportSections, resolveCsvCatalogueSectionId } from '../lib/csvImportSection.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { syncKitchenMenuMirror } from '../lib/eventItems.js';
@@ -519,7 +519,16 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
       if (selPkg && !dirty) setEditorSections(getSectionsForPackage(selPkg) || []);
     };
     window.addEventListener('ambria:menu-packages-refreshed', h);
-    return function() { window.removeEventListener('ambria:menu-packages-refreshed', h); };
+    // Also re-render on any DISH_MASTER / RECIPE_DB / DISH_HINDI_MAP / DISH_CAT_MAP
+    // change — a dish rename, section change, veg toggle or Hindi edit from
+    // DishLibrary (or from any other open tab/device via realtime) needs to
+    // flow into the Packages tab's rendered dish names/pills WITHOUT a page
+    // refresh. Same handler, same re-pull of the open package's sections.
+    var unsubDish = onDishDataChange(h);
+    return function() {
+      window.removeEventListener('ambria:menu-packages-refreshed', h);
+      unsubDish();
+    };
   }, [selPkg, dirty]);
 
   var pkgNames = Object.keys(MENU_PACKAGES).sort();
