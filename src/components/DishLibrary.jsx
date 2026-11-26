@@ -984,6 +984,8 @@ function DishLibrary(props) {
 
       {view === 'library' && <>
 
+      {/* Toolbar area — stays in normal flow. The TABLE below is the only piece that scrolls, so the summary tiles, filter chips, search bar and bulk-action bar always stay reachable without any sticky trickery. */}
+      <div>
       {/* SUMMARY STRIP */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
         <div style={{ background: C.surface, border: '1px solid ' + C.border, borderRadius: 8, padding: '10px 12px' }}>
@@ -1035,7 +1037,7 @@ function DishLibrary(props) {
         )}
       </div>
 
-      {/* BULK ACTION BAR */}
+      {/* BULK ACTION BAR — rides along with the sticky toolbar wrapper above */}
       {selectedCount > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: C.blueBg, border: '1px solid ' + C.blueBorder, borderRadius: 8, marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ fontSize: 12, color: C.blue, fontWeight: 600 }}>{selectedCount} {T2('dish(es) selected')}</div>
@@ -1067,9 +1069,12 @@ function DishLibrary(props) {
         </div>
       )}
 
-      {/* TABLE */}
-      <div style={{ border: '1px solid ' + C.border, borderRadius: 10, overflow: 'hidden', background: C.surface, fontSize: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '28px 1.6fr 1.1fr 0.55fr 0.7fr 1.4fr 1.2fr 0.4fr', gap: 8, padding: '9px 12px', background: C.bg, color: C.muted, fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.3, borderBottom: '1px solid ' + C.border }}>
+      </div>
+      {/* /sticky toolbar wrapper */}
+
+      {/* TABLE — outer bounds the table's height to whatever viewport space is left below the toolbar, then the inner rows list does its own vertical scroll. The column header and the "Showing 500 of …" footer stay pinned around it. 320px ≈ toolbar + tabs + shellscroll padding on a standard desktop; using maxHeight (not height) means the table still shrinks naturally when there are only a handful of rows, so nothing looks oddly tall on a filtered list. */}
+      <div style={{ border: '1px solid ' + C.border, borderRadius: 10, overflow: 'hidden', background: C.surface, fontSize: 12, display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 320px)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '28px 1.6fr 1.1fr 0.55fr 0.7fr 1.4fr 1.2fr 0.4fr', gap: 8, padding: '9px 12px', background: C.bg, color: C.muted, fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.3, borderBottom: '1px solid ' + C.border, flexShrink: 0 }}>
           <div>
             <input type="checkbox" checked={allFilteredSelected} onChange={selectAllFiltered}
               style={{ cursor: 'pointer', margin: 0 }} />
@@ -1082,6 +1087,8 @@ function DishLibrary(props) {
           <div>{T2('Used in')}</div>
           <div></div>
         </div>
+
+        <div style={{ overflowY: 'auto', flex: 1, minHeight: 0 }}>
 
         {filtered.length === 0 && (
           <div style={{ padding: '30px 12px', textAlign: 'center', color: C.muted, fontSize: 12 }}>
@@ -1152,8 +1159,11 @@ function DishLibrary(props) {
             </div>
           );
         })}
+        </div>
+        {/* /scrollable rows */}
+
         {filtered.length > 500 && (
-          <div style={{ padding: '8px 12px', borderTop: '1px solid ' + C.borderLight, textAlign: 'center', color: C.faint, fontSize: 11 }}>
+          <div style={{ padding: '8px 12px', borderTop: '1px solid ' + C.borderLight, textAlign: 'center', color: C.faint, fontSize: 11, flexShrink: 0 }}>
             {T2('Showing 500 of ')}{filtered.length}{T2('. Refine the filter or search to see more.')}
           </div>
         )}
