@@ -18,6 +18,13 @@
 // subsection (kept, filtered down to just the matches); a hit on a
 // subsection's name auto-opens its parent so the match is visible with no
 // extra click.
+//
+// Opening a section that HAS subsections collapses the top-pill row down to
+// just that one pill (its subsection row renders right below it instead of
+// after the whole, possibly 20-30-pill-long, top list) — clicking it again
+// collapses back to the full list. A section with no subsections never
+// collapses anything (there's nothing to show below it), and typing in the
+// search box always shows the full filtered list regardless.
 import React, { useState, useEffect } from "react";
 import { C } from '../data/constants.js';
 
@@ -75,6 +82,16 @@ export function SectionPillPicker({ groups, value, onChange, T2, accent, allowCl
         borderRadius: 8, border: "1px solid " + C.border, fontSize: 12.5, color: C.text, background: C.surface, boxSizing: "border-box" }} />
   );
 
+  // Once a section WITH subsections is open, the rest of the top-level pills
+  // are just noise between it and its own subsection row (with 20-30+ top
+  // sections, the subrow used to land at the very bottom of the whole wall,
+  // nowhere near the pill that opened it) — collapse down to just that one
+  // pill + its subs. A search in progress always shows the full (filtered)
+  // list instead, so searching for a different section never requires
+  // collapsing back out by hand first.
+  var collapsedView = !qLower && !!(openGroup && openGroup.subs && openGroup.subs.length > 0);
+  var topGroups = collapsedView ? [openGroup] : visibleGroups;
+
   if (multiSelect) {
     var selectedIds = value || [];
     var isChecked = function (id) { return selectedIds.indexOf(id) !== -1; };
@@ -85,13 +102,19 @@ export function SectionPillPicker({ groups, value, onChange, T2, accent, allowCl
           <div style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>{T2('No sections match')} "{query}"</div>
         )}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: openGroup ? 8 : 18 }}>
-          {visibleGroups.map(function (g) {
+          {topGroups.map(function (g) {
             var hasSubs = g.subs && g.subs.length > 0;
             var isOpen = openId === g.id;
             var checked = isChecked(g.id);
             return (
               <button key={g.id} type="button"
-                onClick={function () { onChange(g.id); if (hasSubs) setOpenId(isOpen ? null : g.id); }}
+                onClick={function () {
+                  // Already open — a second click just collapses back to the
+                  // full list; it doesn't touch what's checked.
+                  if (isOpen) { setOpenId(null); return; }
+                  onChange(g.id);
+                  if (hasSubs) setOpenId(g.id);
+                }}
                 style={{ ...pillStyle(checked), display: "inline-flex", alignItems: "center", gap: 5 }}>
                 {checked ? '✓ ' : ''}{g.name}{g.count != null ? ' (' + g.count + ')' : ''}
                 {hasSubs && (
@@ -120,8 +143,11 @@ export function SectionPillPicker({ groups, value, onChange, T2, accent, allowCl
 
   function clickTop(g) {
     var hasSubs = g.subs && g.subs.length > 0;
+    // Already open — a second click just collapses back to the full list;
+    // it doesn't change what's selected (that's what the subsection pills,
+    // or picking a different top pill, are for).
+    if (openId === g.id) { setOpenId(null); return; }
     if (hasSubs) {
-      if (openId === g.id && value === g.id) { setOpenId(null); return; }
       setOpenId(g.id);
       onChange(g.id);
     } else {
@@ -137,7 +163,7 @@ export function SectionPillPicker({ groups, value, onChange, T2, accent, allowCl
         <div style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>{T2('No sections match')} "{query}"</div>
       )}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: openGroup ? 8 : 18 }}>
-        {visibleGroups.map(function (g) {
+        {topGroups.map(function (g) {
           var hasSubs = g.subs && g.subs.length > 0;
           var isOpen = openId === g.id;
           var isActive = value === g.id || isOpen;
