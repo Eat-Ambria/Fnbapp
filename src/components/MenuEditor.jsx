@@ -337,14 +337,11 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
   async function confirmCustom() {
     if (!pendingCustom) return;
     var name = pendingCustom.name;
-    // An SOP/recipe section is required — a brand-new dish with no category
-    // picked used to stay genuinely uncategorized (no recipe stub) and only
-    // ever surface as a silent "Unmapped" entry in Kitchen Hub Planning days
-    // or weeks later. Forcing the pick here, before it's ever added to a
-    // menu, stops that category of dish from being created at all; the
-    // button below is disabled until catId is set, this is the backstop.
+    // SOP / recipe section is optional, by request — a dish added with none
+    // picked stays genuinely uncategorized and surfaces in Kitchen Hub
+    // Planning's "Unmapped" list, which is the intended way to notice it
+    // needs one, not an upfront hard block.
     var catId = pendingCustom.catId || '';
-    if (!catId) { alert(T2('Pick an SOP / recipe section before adding this dish.')); return; }
     var mappingIssue = false;
     setCustomSaving(true);
     try {
@@ -643,7 +640,7 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
             <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 2 }}>{pendingCustom.name}</div>
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>{T2("New dish — pick where it belongs before adding it to the menu")}</div>
 
-            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("SOP / recipe section")} <span style={{ textTransform: "none", fontWeight: 500, letterSpacing: 0, color: C.red }}>({T2("required")})</span></div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("SOP / recipe section")} <span style={{ textTransform: "none", fontWeight: 500, letterSpacing: 0, color: C.faint }}>({T2("optional — leave unset and it'll show in Kitchen Hub Planning as Unmapped")})</span></div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: pkgSections ? 18 : 0 }}>
               {(RECIPE_DB.cats || []).map(function(c) {
                 var active = pendingCustom.catId === c.id;
@@ -672,8 +669,8 @@ function MenuEditor({ selected = [], onChange, lang = "en", pkgName = "", sectio
                 style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                 {T2("Cancel")}
               </button>
-              <button onClick={confirmCustom} disabled={customSaving || !pendingCustom.catId}
-                style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: (customSaving || !pendingCustom.catId) ? "not-allowed" : "pointer", opacity: (customSaving || !pendingCustom.catId) ? 0.6 : 1 }}>
+              <button onClick={confirmCustom} disabled={customSaving}
+                style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: customSaving ? "not-allowed" : "pointer", opacity: customSaving ? 0.6 : 1 }}>
                 {customSaving ? T2("Adding…") : T2("Add to menu")}
               </button>
             </div>

@@ -1425,16 +1425,19 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // V87 — add a brand-new dish: library entry + SOP stub (shared helper),
   // select it for this event, and tag which section/subsection pill it shows
   // under (this event only — never touches the shared package).
-  async function addCustomDish(name, catId, sectionId) {
+  async function addCustomDish(name, catId, sectionId, explicitCatalogueSectionId) {
     if (blockIfMenuLocked()) return;
-    // Backstop for the UI-level requirement (the Add-dish modal disables its
-    // confirm button without one) — a brand-new dish with no SOP/recipe
-    // section would otherwise silently have no recipe at all and only
-    // surface much later as an "Unmapped" entry in Kitchen Hub Planning.
-    if (!catId) { alert(T2('Pick an SOP / recipe section before adding this dish.')); return; }
+    // SOP / recipe section is optional, by request — createCustomDishInLibrary
+    // already handles catId being blank (the dish stays genuinely uncategorized
+    // and surfaces in Kitchen Hub Planning's "Unmapped" list, which is the
+    // intended way to notice it needs one, not an upfront hard block).
     try {
+      // An explicit catalogue pick (the Add-dish modal's own "Menu section"
+      // field) always wins — it's a real dish_catalogue_sections id, no
+      // resolution needed. Left blank, fall back to resolving it from the
+      // per-proposal placement pill, same as before this field existed.
       var pkgSecs = templateInfo.name ? (MENU_PACKAGE_SECTIONS[templateInfo.name] || []) : [];
-      var catalogueSectionId = resolveOverrideToCatalogueSectionId(sectionId, sections, pkgSecs);
+      var catalogueSectionId = explicitCatalogueSectionId || resolveOverrideToCatalogueSectionId(sectionId, sections, pkgSecs);
       var lib = await createCustomDishInLibrary(supabase, name, catId, catalogueSectionId);
       setDishLibBump(function(n){ return n + 1; });
       await menuItemOps.addDishItem(itemsOpsConfig, dishItems, name, setDishItems);

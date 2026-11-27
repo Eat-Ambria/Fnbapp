@@ -27,6 +27,7 @@ import { MENU_PACKAGES, getNoAutoSelectOverride, setNoAutoSelectOverride, getAlt
 import { supabase } from '../lib/supabase.js';
 import { getCateringStoreItemsCached, opsSupabase } from '../lib/opsSupabase.js';
 import { transliterateName } from '../utils/helpers.js';
+import { SectionPillPicker } from './SectionPillPicker.jsx';
 
 function DishMappingModal(props) {
   var dishName        = props.dishName || '';
@@ -58,6 +59,13 @@ function DishMappingModal(props) {
   var [pkgAddOpen, setPkgAddOpen]       = useState(false);
   var [pkgSearch, setPkgSearch]         = useState('');
   var [pkgSaving, setPkgSaving]         = useState('');   // '' | pkgName being mutated
+
+  // Menu section (dish_catalogue_sections, via dishes_master.section_id) —
+  // same catalogue tree the Items-tab builder's "Add dish"/"Add section"
+  // pickers already browse, now editable right here instead of only from
+  // the Sections tab (DishSectionsEditor.jsx).
+  var [catalogueSections, setCatalogueSections] = useState([]);
+  var [sectionsLoading, setSectionsLoading]     = useState(false);
 
   var [noAutoBuf, setNoAutoBuf]         = useState(false); // dishes_master.no_auto_select
   var [altGroupBuf, setAltGroupBuf]     = useState('');    // dishes_master.alt_group
@@ -99,6 +107,43 @@ function DishMappingModal(props) {
   // actively selected, so clearing the tag visibly deselects it instead of
   // silently re-landing on the same pill via a coincidental fuzzy guess.
   var detailCatExplicit = dishName ? getExplicitCatIdForDish(dishName) : null;
+  // Menu section — a real FK (dishes_master.section_id) to a
+  // dish_catalogue_sections row, unlike the SOP category above (which is a
+  // fuzzy-fallback guess when unset). No guessed fallback here: null just
+  // means "not placed yet".
+  var detailSectionId = dishName ? ((DISH_MASTER[dishName] && DISH_MASTER[dishName].section_id) || null) : null;
+
+  // Top-level pill first, its subsections (if any) only once that pill is
+  // picked — same tree shape SectionPillPicker expects everywhere else it's
+  // used (Items-tab builder's Add dish/Add section).
+  var menuSectionGroups = useMemo(function() {
+    var byParent = {};
+    (catalogueSections || []).forEach(function(s) {
+      if (s.parent_section_id) (byParent[s.parent_section_id] = byParent[s.parent_section_id] || []).push(s);
+    });
+    return (catalogueSections || []).filter(function(s) { return !s.parent_section_id; }).map(function(s) {
+      return { id: s.id, name: s.name, subs: (byParent[s.id] || []).map(function(sub) { return { id: sub.id, name: sub.name }; }) };
+    });
+  }, [catalogueSections]);
+
+  // Dishes sharing the alt-group tag CURRENTLY IN THE FIELD (live, not just
+  // the saved value) — so typing a tag that already groups other dishes
+  // shows the match before you even hit Save, the same way a client-facing
+  // preview would eventually join them. Scoped to this package's effective
+  // tag when opened from inside one, else the catalogue-wide tag.
+  var altGroupSiblings = useMemo(function() {
+    var tag = ((pkgName ? pkgAltGroupBuf : altGroupBuf) || '').trim();
+    if (!tag || !dishName) return [];
+    return Object.keys(DISH_MASTER).filter(function(n) {
+      if (n === dishName) return false;
+      var row = DISH_MASTER[n];
+      if (!row || row.is_active === false) return false;
+      var ov = pkgName ? getAltGroupOverride(pkgName, n) : undefined;
+      var t = ((ov === undefined ? (row.alt_group || '') : ov) || '').trim();
+      return t === tag;
+    }).sort();
+  // eslint-disable-next-line
+  }, [pkgName, pkgAltGroupBuf, altGroupBuf, dishName, bump]);
 
   // ── Effects ───────────────────────────────────────────────────────
   // Reset modal state whenever dishName changes (i.e. opens for a new dish).
@@ -118,6 +163,7 @@ function DishMappingModal(props) {
     }
     setSopSearch(''); setStoreSearch('');
     setPkgAddOpen(false); setPkgSearch(''); setPkgSaving('');
+    loadCatalogueSections();
     var row = DISH_MASTER[dishName];
     setNoAutoBuf(!!(row && row.no_auto_select));
     setAltGroupBuf((row && row.alt_group) || '');
@@ -173,6 +219,16 @@ function DishMappingModal(props) {
   function notify() {
     setBump(function(n) { return n + 1; });
     try { onChange(); } catch(e) {}
+  }
+
+  async function loadCatalogueSections() {
+    setSectionsLoading(true);
+    try {
+      var res = await supabase.from('dish_catalogue_sections').select('id, name, parent_section_id, sort_order').order('sort_order', { ascending: true });
+      if (res.error) throw res.error;
+      setCatalogueSections(res.data || []);
+    } catch (e) { console.warn('[DishMappingModal] sections load failed:', e); }
+    finally { setSectionsLoading(false); }
   }
 
   async function loadStoreItems() {
@@ -241,6 +297,24 @@ function DishMappingModal(props) {
       upsertDishCat(dishName, catId);
       notify();
     } catch (e) { alert('Category save failed: ' + e.message); }
+    finally { setSaving(''); }
+  }
+
+  // Menu section — real catalogue placement (dishes_master.section_id), vs
+  // the fuzzy/guessable SOP category above. Saves immediately on pick, same
+  // as the SOP pills; clearing goes through SectionPillPicker's own "✕"
+  // pill, not a re-click. sort_in_section resets to null on a real change —
+  // it was ordinal to whichever section the dish is LEAVING, and the
+  // Sections tab is where fine within-section ordering actually happens.
+  async function saveMenuSection(nextId) {
+    if (!dishName || !isAdmin || nextId === detailSectionId) return;
+    setSaving('section');
+    try {
+      var res = await supabase.from('dishes_master').update({ section_id: nextId || null, sort_in_section: null }).eq('dish_name', dishName);
+      if (res.error) throw res.error;
+      upsertDishMaster(dishName, { section_id: nextId || null });
+      notify();
+    } catch (e) { alert('Menu section save failed: ' + e.message); }
     finally { setSaving(''); }
   }
 
@@ -547,148 +621,259 @@ function DishMappingModal(props) {
           </div>
         </div>
 
-        {/* SOP / recipe category — which grouping this dish shows under in Build Menu */}
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
-            {T2('SOP / recipe section')}
-            {!detailCatExplicit && <span style={{ textTransform: 'none', fontWeight: 400 }}> — {T2('unset, showing best guess')}</span>}
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {(RECIPE_DB.cats || []).map(function(c) {
-              // getCatIdForDish always guesses SOMETHING even with no explicit
-              // tag — "active" (solid) means this dish is explicitly tagged
-              // here; "guessed" (dashed outline) means it's only resolving
-              // here by fuzzy fallback, so clearing the tag visibly looks
-              // cleared instead of silently re-landing on the same pill.
-              var active = detailCatExplicit === c.id;
-              var guessed = !detailCatExplicit && detailCatId === c.id;
-              return (
-                <button key={c.id} onClick={function() { if (isAdmin) saveCat(active ? null : c.id); }} disabled={!isAdmin || !!saving}
-                  style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11, fontWeight: active ? 700 : 500,
-                    cursor: isAdmin ? 'pointer' : 'default',
-                    background: active ? '#3B6D11' : 'transparent', color: active ? '#fff' : (guessed ? C.muted : C.text),
-                    border: (guessed ? '1px dashed ' : '1px solid ') + (active ? '#3B6D11' : C.border), opacity: saving === 'cat' ? 0.6 : 1 }}>
-                  {c.icon} {c.name}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Type toggle */}
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{T2('Mapping type')}</div>
-          <div style={{ display: 'flex', gap: 4, background: C.bg, borderRadius: 6, padding: 3, width: 'fit-content' }}>
-            <button onClick={function() { setType('sop'); }}
-              style={{ padding: '5px 14px', borderRadius: 4, background: type === 'sop' ? '#3B6D11' : 'transparent', color: type === 'sop' ? '#fff' : C.muted, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>SOP {T2('recipe')}</button>
-            <button onClick={function() { setType('store'); loadStoreItems(); }}
-              style={{ padding: '5px 14px', borderRadius: 4, background: type === 'store' ? '#0F6E56' : 'transparent', color: type === 'store' ? '#fff' : C.muted, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{T2('Inventory')}</button>
-          </div>
-          <div style={{ fontSize: 10, color: C.faint, marginTop: 4 }}>{T2('Mutually exclusive — picking one clears the other.')}</div>
-        </div>
-
-        {/* Auto-select — a dish that's an either/or choice inside an
-            otherwise-normal section (e.g. Dish X / Dish Y in Main Course)
-            shouldn't be bulk-added as a package default, and an alt_group
-            tag lets a client-facing preview still show the choice joined
-            even after the event resolves to just one of them. */}
-        <div style={{ marginBottom: 14, padding: 10, background: C.bg, border: '1px solid ' + C.borderLight, borderRadius: 8 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: isAdmin ? 'pointer' : 'default' }}>
-            <input type="checkbox" checked={noAutoBuf} disabled={!isAdmin || !!saving}
-              onChange={function() { saveNoAutoSelect(!noAutoBuf); }}
-              style={{ width: 15, height: 15, cursor: isAdmin ? 'pointer' : 'default' }} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{T2("Don't auto-select by default")}</span>
-          </label>
-          <div style={{ fontSize: 10, color: C.faint, marginTop: 3, marginLeft: 23 }}>
-            {T2('Shows as an option when building the menu, but is never bulk-added when the package is first assigned or "Load defaults" is used — for a choice between a couple of dishes inside this section.')}
-          </div>
-
-          {/* Package-specific override — the checkbox above is catalogue-wide
-              (every package that uses this dish), which doesn't fit a dish
-              that should auto-select in some packages but not others. Only
-              shown when this modal was opened from inside a package's own
-              section editor, where there's an actual package to scope it to. */}
-          {pkgName && (
-            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid ' + C.borderLight }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4 }}>
-                {T2('Within this package')} ({pkgName})
-              </div>
-              <div style={{ display: 'flex', gap: 4, background: C.surface, borderRadius: 6, padding: 3, width: 'fit-content', border: '1px solid ' + C.borderLight }}>
-                <button onClick={function() { if (isAdmin) savePkgOverride('default'); }} disabled={!isAdmin || !!saving}
-                  style={{ padding: '5px 12px', borderRadius: 4, background: pkgOverrideBuf === 'default' ? '#3B6D11' : 'transparent', color: pkgOverrideBuf === 'default' ? '#fff' : C.muted, border: 'none', fontSize: 11.5, fontWeight: 600, cursor: isAdmin ? 'pointer' : 'default' }}>
-                  {T2('Use catalogue default')}
-                </button>
-                <button onClick={function() { if (isAdmin) savePkgOverride('always'); }} disabled={!isAdmin || !!saving}
-                  style={{ padding: '5px 12px', borderRadius: 4, background: pkgOverrideBuf === 'always' ? '#3B6D11' : 'transparent', color: pkgOverrideBuf === 'always' ? '#fff' : C.muted, border: 'none', fontSize: 11.5, fontWeight: 600, cursor: isAdmin ? 'pointer' : 'default' }}>
-                  {T2('Always auto-select here')}
-                </button>
-                <button onClick={function() { if (isAdmin) savePkgOverride('never'); }} disabled={!isAdmin || !!saving}
-                  style={{ padding: '5px 12px', borderRadius: 4, background: pkgOverrideBuf === 'never' ? '#3B6D11' : 'transparent', color: pkgOverrideBuf === 'never' ? '#fff' : C.muted, border: 'none', fontSize: 11.5, fontWeight: 600, cursor: isAdmin ? 'pointer' : 'default' }}>
-                  {T2('Never auto-select here')}
-                </button>
-              </div>
-              <div style={{ fontSize: 10, color: C.faint, marginTop: 4 }}>
-                {T2('Overrides the catalogue setting above, only for this one package — other packages using this dish are unaffected.')}
-              </div>
+        {/* ══ Component 1 — Menu & package mapping: where this dish lives
+            when building a menu, and who's using it. ══ */}
+        <div style={{ marginBottom: 14, padding: 14, borderRadius: 10, border: '1px solid ' + C.border, borderLeft: '3px solid ' + C.wine }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
+            <span style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, background: C.wine, color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>1</span>
+            <div>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: C.text }}>{T2('Menu & package mapping')}</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{T2("Where this dish lives when building a menu, and who's using it.")}</div>
             </div>
-          )}
+          </div>
 
-          <div style={{ marginTop: 10 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4 }}>{T2('Alternative group')}</div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <input value={altGroupBuf} onChange={function(e) { setAltGroupBuf(e.target.value); }}
-                placeholder={T2('e.g. mc-paneer-choice — same tag as its alternative(s)')} disabled={!isAdmin}
-                style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid ' + C.border, background: C.surface, fontSize: 12, color: C.text, boxSizing: 'border-box' }} />
-              {isAdmin && (
-                <button onClick={saveAltGroup} disabled={!!saving || altGroupBuf.trim() === ((DISH_MASTER[dishName] && DISH_MASTER[dishName].alt_group) || '')}
-                  style={{ padding: '6px 14px', borderRadius: 6, background: C.green, border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: saving === 'altgroup' ? 'wait' : 'pointer', opacity: (saving || altGroupBuf.trim() === ((DISH_MASTER[dishName] && DISH_MASTER[dishName].alt_group) || '')) ? 0.5 : 1 }}>
-                  {saving === 'altgroup' ? T2('Saving…') : T2('Save')}
+          {/* Menu section — real catalogue placement (dishes_master.section_id),
+              the same two-level Sections-tab tree the Items-tab builder
+              already browses, now editable right here instead of only from
+              the Sections tab. */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{T2('Menu section')}</div>
+            {sectionsLoading && <div style={{ fontSize: 11, color: C.muted }}>{T2('Loading sections…')}</div>}
+            {!sectionsLoading && menuSectionGroups.length === 0 && (
+              <div style={{ fontSize: 11, color: C.faint, fontStyle: 'italic' }}>{T2('No catalogue sections yet — add one from the Sections tab.')}</div>
+            )}
+            {!sectionsLoading && menuSectionGroups.length > 0 && (
+              <SectionPillPicker groups={menuSectionGroups} value={detailSectionId} searchable
+                accent={C.wine} clearLabel={T2('No section')}
+                onChange={function(id) { saveMenuSection(id); }} T2={T2} />
+            )}
+            <div style={{ fontSize: 10, color: C.faint, marginTop: 4 }}>
+              {T2('Pick the main section; if it has sub-sections, pick one of those too.')}
+            </div>
+          </div>
+
+          <div style={{ height: 1, background: C.borderLight, margin: '12px 0' }} />
+
+          {/* Packages usage — assign / remove */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>{T2('Used in packages')} <span style={{ color: C.faint, fontWeight: 400 }}>({detailPkgs.length})</span></span>
+              {isAdmin && available.length > 0 && (
+                <button onClick={function() { setPkgAddOpen(!pkgAddOpen); setPkgSearch(''); }} disabled={!!pkgSaving}
+                  style={{ fontSize: 11, padding: '3px 10px', borderRadius: 12, background: pkgAddOpen ? C.wine : 'transparent', color: pkgAddOpen ? '#fff' : C.wine, border: '1px solid ' + C.wine, cursor: pkgSaving ? 'wait' : 'pointer', fontWeight: 600 }}>
+                  {pkgAddOpen ? '× ' + T2('Close') : '+ ' + T2('Add to package')}
                 </button>
               )}
             </div>
-            <div style={{ fontSize: 10, color: C.faint, marginTop: 3 }}>
-              {T2('Give Dish X and Dish Y the same tag and a client-facing menu preview shows them joined as "Dish X / Dish Y" — leave blank for a normal dish.')}
+
+            {detailPkgs.length > 0 && (
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: pkgAddOpen ? 8 : 0 }}>
+                {detailPkgs.map(function(p) {
+                  var isSaving = pkgSaving === p;
+                  return (
+                    <div key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11, padding: '2px 4px 2px 8px', borderRadius: 10, background: C.bg, color: C.text, border: '1px solid ' + C.borderLight, opacity: isSaving ? 0.5 : 1 }}>
+                      <span onClick={function() { onClose(); onJumpToPackage(p); }} style={{ cursor: 'pointer' }}>{p} →</span>
+                      {isAdmin && (
+                        <button onClick={function() { handleRemoveFromPackage(p); }} disabled={!!pkgSaving}
+                          title={T2('Remove from ') + p}
+                          style={{ background: 'transparent', border: 'none', color: C.red, fontSize: 13, cursor: pkgSaving ? 'not-allowed' : 'pointer', padding: '0 4px', lineHeight: 1, fontWeight: 700 }}>×</button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {detailPkgs.length === 0 && !pkgAddOpen && (
+              <div style={{ fontSize: 11, color: C.faint, fontStyle: 'italic' }}>{T2('Not used in any package.')}</div>
+            )}
+
+            {pkgAddOpen && (
+              <div style={{ marginTop: 4, padding: 8, background: C.bg, border: '1px solid ' + C.borderLight, borderRadius: 6 }}>
+                <input value={pkgSearch} onChange={function(e) { setPkgSearch(e.target.value); }}
+                  placeholder={T2('Search packages…')} autoFocus disabled={!!pkgSaving}
+                  style={{ width: '100%', padding: '5px 10px', borderRadius: 4, border: '1px solid ' + C.border, background: C.surface, fontSize: 12, color: C.text, boxSizing: 'border-box', marginBottom: 6 }} />
+                <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid ' + C.borderLight, borderRadius: 4, background: C.surface }}>
+                  {availFiltered.length === 0 && (
+                    <div style={{ padding: '8px 10px', fontSize: 11, color: C.muted, textAlign: 'center' }}>
+                      {available.length === 0 ? T2('Already in every package.') : T2('No matches.')}
+                    </div>
+                  )}
+                  {availFiltered.map(function(p) {
+                    var isSaving = pkgSaving === p;
+                    return (
+                      <div key={p} onClick={function() { if (!pkgSaving) handleAddToPackage(p); }}
+                        style={{ padding: '5px 10px', fontSize: 12, cursor: pkgSaving ? 'wait' : 'pointer', borderBottom: '1px solid ' + C.borderLight, color: C.text, display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: isSaving ? 0.5 : 1 }}>
+                        <span>{p}</span>
+                        {isSaving ? <span style={{ fontSize: 10, color: C.muted }}>{T2('Adding…')}</span> : <span style={{ fontSize: 12, color: C.wine, fontWeight: 700 }}>+</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div style={{ height: 1, background: C.borderLight, margin: '12px 0' }} />
+
+          {/* Auto-select — a dish that's an either/or choice inside an
+              otherwise-normal section (e.g. Dish X / Dish Y in Main Course)
+              shouldn't be bulk-added as a package default, and an alt_group
+              tag lets a client-facing preview still show the choice joined
+              even after the event resolves to just one of them. */}
+          <div style={{ padding: 10, background: C.bg, border: '1px solid ' + C.borderLight, borderRadius: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: isAdmin ? 'pointer' : 'default' }}>
+              <input type="checkbox" checked={noAutoBuf} disabled={!isAdmin || !!saving}
+                onChange={function() { saveNoAutoSelect(!noAutoBuf); }}
+                style={{ width: 15, height: 15, cursor: isAdmin ? 'pointer' : 'default' }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{T2("Don't auto-select by default")}</span>
+            </label>
+            <div style={{ fontSize: 10, color: C.faint, marginTop: 3, marginLeft: 23 }}>
+              {T2('Shows as an option when building the menu, but is never bulk-added when the package is first assigned or "Load defaults" is used — for a choice between a couple of dishes inside this section.')}
             </div>
 
-            {/* Package-specific override — same idea as "Within this package"
-                above: the tag/blank above is catalogue-wide, this lets one
-                package group (or ungroup) this dish without touching any
-                other package that uses it. Only shown when opened from
-                inside a package's own section editor. */}
+            {/* Package-specific override — the checkbox above is catalogue-wide
+                (every package that uses this dish), which doesn't fit a dish
+                that should auto-select in some packages but not others. Only
+                shown when this modal was opened from inside a package's own
+                section editor, where there's an actual package to scope it to. */}
             {pkgName && (
               <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid ' + C.borderLight }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4 }}>
                   {T2('Within this package')} ({pkgName})
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <input value={pkgAltGroupBuf} onChange={function(e) { setPkgAltGroupBuf(e.target.value); }}
-                    placeholder={T2('e.g. mc-paneer-choice — leave blank for no group in this package')} disabled={!isAdmin}
-                    style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid ' + C.border, background: C.surface, fontSize: 12, color: C.text, boxSizing: 'border-box' }} />
-                  {isAdmin && (
-                    <button onClick={savePkgAltGroupOverride} disabled={!!saving}
-                      style={{ padding: '6px 14px', borderRadius: 6, background: C.green, border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: saving === 'pkgaltgroup' ? 'wait' : 'pointer', opacity: saving ? 0.5 : 1 }}>
-                      {saving === 'pkgaltgroup' ? T2('Saving…') : T2('Save')}
-                    </button>
-                  )}
-                  {isAdmin && pkgAltGroupHasOverride && (
-                    <button onClick={resetPkgAltGroupOverride} disabled={!!saving}
-                      style={{ padding: '6px 14px', borderRadius: 6, background: 'transparent', border: '1px solid ' + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.5 : 1 }}>
-                      {T2('Use catalogue default')}
-                    </button>
-                  )}
+                <div style={{ display: 'flex', gap: 4, background: C.surface, borderRadius: 6, padding: 3, width: 'fit-content', border: '1px solid ' + C.borderLight }}>
+                  <button onClick={function() { if (isAdmin) savePkgOverride('default'); }} disabled={!isAdmin || !!saving}
+                    style={{ padding: '5px 12px', borderRadius: 4, background: pkgOverrideBuf === 'default' ? '#3B6D11' : 'transparent', color: pkgOverrideBuf === 'default' ? '#fff' : C.muted, border: 'none', fontSize: 11.5, fontWeight: 600, cursor: isAdmin ? 'pointer' : 'default' }}>
+                    {T2('Use catalogue default')}
+                  </button>
+                  <button onClick={function() { if (isAdmin) savePkgOverride('always'); }} disabled={!isAdmin || !!saving}
+                    style={{ padding: '5px 12px', borderRadius: 4, background: pkgOverrideBuf === 'always' ? '#3B6D11' : 'transparent', color: pkgOverrideBuf === 'always' ? '#fff' : C.muted, border: 'none', fontSize: 11.5, fontWeight: 600, cursor: isAdmin ? 'pointer' : 'default' }}>
+                    {T2('Always auto-select here')}
+                  </button>
+                  <button onClick={function() { if (isAdmin) savePkgOverride('never'); }} disabled={!isAdmin || !!saving}
+                    style={{ padding: '5px 12px', borderRadius: 4, background: pkgOverrideBuf === 'never' ? '#3B6D11' : 'transparent', color: pkgOverrideBuf === 'never' ? '#fff' : C.muted, border: 'none', fontSize: 11.5, fontWeight: 600, cursor: isAdmin ? 'pointer' : 'default' }}>
+                    {T2('Never auto-select here')}
+                  </button>
                 </div>
                 <div style={{ fontSize: 10, color: C.faint, marginTop: 4 }}>
-                  {pkgAltGroupHasOverride
-                    ? T2('This package overrides the catalogue tag above — other packages using this dish are unaffected.')
-                    : T2('Currently following the catalogue tag above. Save a different tag (or save blank for no group) to override it just for this package.')}
+                  {T2('Overrides the catalogue setting above, only for this one package — other packages using this dish are unaffected.')}
                 </div>
               </div>
             )}
+
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4 }}>{T2('Alternative group')}</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input value={altGroupBuf} onChange={function(e) { setAltGroupBuf(e.target.value); }}
+                  placeholder={T2('e.g. mc-paneer-choice — same tag as its alternative(s)')} disabled={!isAdmin}
+                  style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid ' + C.border, background: C.surface, fontSize: 12, color: C.text, boxSizing: 'border-box' }} />
+                {isAdmin && (
+                  <button onClick={saveAltGroup} disabled={!!saving || altGroupBuf.trim() === ((DISH_MASTER[dishName] && DISH_MASTER[dishName].alt_group) || '')}
+                    style={{ padding: '6px 14px', borderRadius: 6, background: C.green, border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: saving === 'altgroup' ? 'wait' : 'pointer', opacity: (saving || altGroupBuf.trim() === ((DISH_MASTER[dishName] && DISH_MASTER[dishName].alt_group) || '')) ? 0.5 : 1 }}>
+                    {saving === 'altgroup' ? T2('Saving…') : T2('Save')}
+                  </button>
+                )}
+              </div>
+              <div style={{ fontSize: 10, color: C.faint, marginTop: 3 }}>
+                {T2('Give Dish X and Dish Y the same tag and a client-facing menu preview shows them joined as "Dish X / Dish Y" — leave blank for a normal dish.')}
+              </div>
+              {altGroupSiblings.length > 0 && (
+                <div style={{ fontSize: 10.5, color: C.wine, marginTop: 5, fontWeight: 600 }}>
+                  ⚭ {T2('Shared with: ')}{altGroupSiblings.join(', ')}
+                </div>
+              )}
+
+              {/* Package-specific override — same idea as "Within this package"
+                  above: the tag/blank above is catalogue-wide, this lets one
+                  package group (or ungroup) this dish without touching any
+                  other package that uses it. Only shown when opened from
+                  inside a package's own section editor. */}
+              {pkgName && (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid ' + C.borderLight }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4 }}>
+                    {T2('Within this package')} ({pkgName})
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input value={pkgAltGroupBuf} onChange={function(e) { setPkgAltGroupBuf(e.target.value); }}
+                      placeholder={T2('e.g. mc-paneer-choice — leave blank for no group in this package')} disabled={!isAdmin}
+                      style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid ' + C.border, background: C.surface, fontSize: 12, color: C.text, boxSizing: 'border-box' }} />
+                    {isAdmin && (
+                      <button onClick={savePkgAltGroupOverride} disabled={!!saving}
+                        style={{ padding: '6px 14px', borderRadius: 6, background: C.green, border: 'none', color: '#fff', fontSize: 12, fontWeight: 600, cursor: saving === 'pkgaltgroup' ? 'wait' : 'pointer', opacity: saving ? 0.5 : 1 }}>
+                        {saving === 'pkgaltgroup' ? T2('Saving…') : T2('Save')}
+                      </button>
+                    )}
+                    {isAdmin && pkgAltGroupHasOverride && (
+                      <button onClick={resetPkgAltGroupOverride} disabled={!!saving}
+                        style={{ padding: '6px 14px', borderRadius: 6, background: 'transparent', border: '1px solid ' + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.5 : 1 }}>
+                        {T2('Use catalogue default')}
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 10, color: C.faint, marginTop: 4 }}>
+                    {pkgAltGroupHasOverride
+                      ? T2('This package overrides the catalogue tag above — other packages using this dish are unaffected.')
+                      : T2('Currently following the catalogue tag above. Save a different tag (or save blank for no group) to override it just for this package.')}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* SOP picker */}
-        {type === 'sop' && (
+        {/* ══ Component 2 — SOP & recipe mapping: which kitchen write-up or
+            inventory item this dish draws from. ══ */}
+        <div style={{ marginBottom: 14, padding: 14, borderRadius: 10, border: '1px solid ' + C.border, borderLeft: '3px solid #3B6D11' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
+            <span style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, background: '#3B6D11', color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>2</span>
+            <div>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: C.text }}>{T2('SOP & recipe mapping')}</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{T2('Which kitchen write-up or inventory item this dish draws from.')}</div>
+            </div>
+          </div>
+
+          {/* SOP / recipe category — which grouping this dish shows under in Build Menu */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+              {T2('SOP / recipe section')}
+              {!detailCatExplicit && <span style={{ textTransform: 'none', fontWeight: 400 }}> — {T2('unset, showing best guess')}</span>}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {(RECIPE_DB.cats || []).map(function(c) {
+                // getCatIdForDish always guesses SOMETHING even with no explicit
+                // tag — "active" (solid) means this dish is explicitly tagged
+                // here; "guessed" (dashed outline) means it's only resolving
+                // here by fuzzy fallback, so clearing the tag visibly looks
+                // cleared instead of silently re-landing on the same pill.
+                var active = detailCatExplicit === c.id;
+                var guessed = !detailCatExplicit && detailCatId === c.id;
+                return (
+                  <button key={c.id} onClick={function() { if (isAdmin) saveCat(active ? null : c.id); }} disabled={!isAdmin || !!saving}
+                    style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11, fontWeight: active ? 700 : 500,
+                      cursor: isAdmin ? 'pointer' : 'default',
+                      background: active ? '#3B6D11' : 'transparent', color: active ? '#fff' : (guessed ? C.muted : C.text),
+                      border: (guessed ? '1px dashed ' : '1px solid ') + (active ? '#3B6D11' : C.border), opacity: saving === 'cat' ? 0.6 : 1 }}>
+                    {c.icon} {c.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Type toggle */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{T2('Mapping type')}</div>
+            <div style={{ display: 'flex', gap: 4, background: C.bg, borderRadius: 6, padding: 3, width: 'fit-content' }}>
+              <button onClick={function() { setType('sop'); }}
+                style={{ padding: '5px 14px', borderRadius: 4, background: type === 'sop' ? '#3B6D11' : 'transparent', color: type === 'sop' ? '#fff' : C.muted, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>SOP {T2('recipe')}</button>
+              <button onClick={function() { setType('store'); loadStoreItems(); }}
+                style={{ padding: '5px 14px', borderRadius: 4, background: type === 'store' ? '#0F6E56' : 'transparent', color: type === 'store' ? '#fff' : C.muted, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{T2('Inventory')}</button>
+            </div>
+            <div style={{ fontSize: 10, color: C.faint, marginTop: 4 }}>{T2('Mutually exclusive — picking one clears the other.')}</div>
+          </div>
+
+          {/* SOP picker */}
+          {type === 'sop' && (
           <div style={{ marginBottom: 14, padding: 10, background: '#F5FAF0', border: '1px solid ' + C.borderLight, borderRadius: 8 }}>
             <div style={{ fontSize: 11, color: '#3B6D11', marginBottom: 6, fontWeight: 600 }}>
               {detailSop ? T2('Currently linked to: ') + detailSop.n : T2('No SOP recipe linked yet.')}
@@ -773,64 +958,6 @@ function DishMappingModal(props) {
             )}
           </div>
         )}
-
-        {/* Packages usage — assign / remove */}
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>{T2('Assign to packages')} <span style={{ color: C.faint, fontWeight: 400 }}>({detailPkgs.length})</span></span>
-            {isAdmin && available.length > 0 && (
-              <button onClick={function() { setPkgAddOpen(!pkgAddOpen); setPkgSearch(''); }} disabled={!!pkgSaving}
-                style={{ fontSize: 11, padding: '3px 10px', borderRadius: 12, background: pkgAddOpen ? C.wine : 'transparent', color: pkgAddOpen ? '#fff' : C.wine, border: '1px solid ' + C.wine, cursor: pkgSaving ? 'wait' : 'pointer', fontWeight: 600 }}>
-                {pkgAddOpen ? '× ' + T2('Close') : '+ ' + T2('Add to package')}
-              </button>
-            )}
-          </div>
-
-          {detailPkgs.length > 0 && (
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: pkgAddOpen ? 8 : 0 }}>
-              {detailPkgs.map(function(p) {
-                var isSaving = pkgSaving === p;
-                return (
-                  <div key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11, padding: '2px 4px 2px 8px', borderRadius: 10, background: C.bg, color: C.text, border: '1px solid ' + C.borderLight, opacity: isSaving ? 0.5 : 1 }}>
-                    <span onClick={function() { onClose(); onJumpToPackage(p); }} style={{ cursor: 'pointer' }}>{p} →</span>
-                    {isAdmin && (
-                      <button onClick={function() { handleRemoveFromPackage(p); }} disabled={!!pkgSaving}
-                        title={T2('Remove from ') + p}
-                        style={{ background: 'transparent', border: 'none', color: C.red, fontSize: 13, cursor: pkgSaving ? 'not-allowed' : 'pointer', padding: '0 4px', lineHeight: 1, fontWeight: 700 }}>×</button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {detailPkgs.length === 0 && !pkgAddOpen && (
-            <div style={{ fontSize: 11, color: C.faint, fontStyle: 'italic' }}>{T2('Not used in any package.')}</div>
-          )}
-
-          {pkgAddOpen && (
-            <div style={{ marginTop: 4, padding: 8, background: C.bg, border: '1px solid ' + C.borderLight, borderRadius: 6 }}>
-              <input value={pkgSearch} onChange={function(e) { setPkgSearch(e.target.value); }}
-                placeholder={T2('Search packages…')} autoFocus disabled={!!pkgSaving}
-                style={{ width: '100%', padding: '5px 10px', borderRadius: 4, border: '1px solid ' + C.border, background: C.surface, fontSize: 12, color: C.text, boxSizing: 'border-box', marginBottom: 6 }} />
-              <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid ' + C.borderLight, borderRadius: 4, background: C.surface }}>
-                {availFiltered.length === 0 && (
-                  <div style={{ padding: '8px 10px', fontSize: 11, color: C.muted, textAlign: 'center' }}>
-                    {available.length === 0 ? T2('Already in every package.') : T2('No matches.')}
-                  </div>
-                )}
-                {availFiltered.map(function(p) {
-                  var isSaving = pkgSaving === p;
-                  return (
-                    <div key={p} onClick={function() { if (!pkgSaving) handleAddToPackage(p); }}
-                      style={{ padding: '5px 10px', fontSize: 12, cursor: pkgSaving ? 'wait' : 'pointer', borderBottom: '1px solid ' + C.borderLight, color: C.text, display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: isSaving ? 0.5 : 1 }}>
-                      <span>{p}</span>
-                      {isSaving ? <span style={{ fontSize: 10, color: C.muted }}>{T2('Adding…')}</span> : <span style={{ fontSize: 12, color: C.wine, fontWeight: 700 }}>+</span>}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Footer actions */}

@@ -350,15 +350,18 @@ export function MenuBuilderView({ proposal, onClose, lang = "en", currentUser = 
   // V87 — add a brand-new dish: library entry + SOP stub (shared helper),
   // select it for this proposal, and tag which section/subsection pill it
   // shows under (this proposal only — never touches the shared package).
-  async function addCustomDish(name, catId, sectionId) {
-    // Backstop for the UI-level requirement (the Add-dish modal disables its
-    // confirm button without one) — a brand-new dish with no SOP/recipe
-    // section would otherwise silently have no recipe at all and only
-    // surface much later as an "Unmapped" entry in Kitchen Hub Planning.
-    if (!catId) { sayFail(T2('Could not add that dish'), T2('Pick an SOP / recipe section first.')); return; }
+  async function addCustomDish(name, catId, sectionId, explicitCatalogueSectionId) {
+    // SOP / recipe section is optional, by request — createCustomDishInLibrary
+    // already handles catId being blank (the dish stays genuinely uncategorized
+    // and surfaces in Kitchen Hub Planning's "Unmapped" list, which is the
+    // intended way to notice it needs one, not an upfront hard block).
     try {
+      // An explicit catalogue pick (the Add-dish modal's own "Menu section"
+      // field) always wins — it's a real dish_catalogue_sections id, no
+      // resolution needed. Left blank, fall back to resolving it from the
+      // per-proposal placement pill, same as before this field existed.
       var pkgSecs = templateInfo.name ? (MENU_PACKAGE_SECTIONS[templateInfo.name] || []) : [];
-      var catalogueSectionId = resolveOverrideToCatalogueSectionId(sectionId, sections, pkgSecs);
+      var catalogueSectionId = explicitCatalogueSectionId || resolveOverrideToCatalogueSectionId(sectionId, sections, pkgSecs);
       var lib = await createCustomDishInLibrary(supabase, name, catId, catalogueSectionId);
       setDishLibBump(function(n){ return n + 1; });
       // addDishItem only calls its onOptimistic setter AFTER a successful
@@ -1105,7 +1108,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
     return out;
   }, [groupedByCat, catalogueSectionOptions]);
   function openCustomModal(){
-    setPendingCustom({ name: '', catId: '', sectionId: activeSectionId || '' });
+    setPendingCustom({ name: '', catId: '', sectionId: activeSectionId || '', catalogueSectionId: '' });
   }
   // Search the dish library as the user types, so "add dish" reuses an
   // existing dish (and its recipe/ingredients) instead of silently creating a
@@ -1160,18 +1163,12 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
       }
       return;
     }
-    // An SOP/recipe section is required for a genuinely NEW dish (not one
-    // that matched an existing library entry, which already has whatever
-    // category it has) — see MenuEditor.jsx's confirmCustom for why: without
-    // this, a brand-new dish silently had no recipe at all and only ever
-    // surfaced, much later, as an "Unmapped" entry in Kitchen Hub Planning.
-    if (!matchedExisting && !pendingCustom.catId) { sayFail(T2('Pick an SOP / recipe section before adding this dish.')); return; }
     setCustomSaving(true);
     try {
       if (matchedExisting && onAddExistingDish) {
         await onAddExistingDish(matchedExisting.name, pendingCustom.sectionId || null);
       } else {
-        await onAddCustomDish(pendingCustom.name.trim(), pendingCustom.catId || null, pendingCustom.sectionId || null);
+        await onAddCustomDish(pendingCustom.name.trim(), pendingCustom.catId || null, pendingCustom.sectionId || null, pendingCustom.catalogueSectionId || null);
       }
       setPendingCustom(null);
     } catch (e) {
@@ -1216,7 +1213,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
       if (!row) { setPendingSection(null); return; }
       await onAddSectionFromLibrary(row.id, row.id);
       setPendingSection(null);
-      setPendingCustom({ name: '', catId: '', sectionId: row.id });
+      setPendingCustom({ name: '', catId: '', sectionId: row.id, catalogueSectionId: '' });
     } catch (e) {
       sayFail(T2('Could not create that section'), e);
     } finally {
@@ -1679,11 +1676,31 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
               </div>
             )}
 
+            {/* Catalogue menu section (dishes_master.section_id) — only matters
+                for a genuinely new dish; an existing one already has whatever
+                catalogue section it has (edit it from the Dish Library
+                instead). Optional: a dish with nothing picked here falls back
+                to whatever "Place in this menu" below resolves to (unchanged
+                behavior) — this field just makes that placement explicit and
+                editable up front instead of only an indirect side effect. */}
+            {!matchedExisting && catalogueSectionGroups && catalogueSectionGroups.length > 0 && (
+              <>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+                  {T2("Menu section")} <span style={{ textTransform: "none", fontWeight: 500, letterSpacing: 0, color: C.faint }}>({T2("optional — this dish's permanent catalogue placement")})</span>
+                </div>
+                <div style={{ marginBottom: 18 }}>
+                  <SectionPillPicker groups={catalogueSectionGroups} value={pendingCustom.catalogueSectionId} searchable
+                    onChange={function(id){ setPendingCustom(function(p){ return { ...p, catalogueSectionId: id }; }); }}
+                    T2={T2} accent={C.wine} clearLabel={T2("Unset")} />
+                </div>
+              </>
+            )}
+
             {/* An existing dish already has its own SOP category — this picker
                 only matters when creating a genuinely new one. */}
             {!matchedExisting && (
               <>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("SOP / recipe section")} <span style={{ textTransform: "none", fontWeight: 500, letterSpacing: 0, color: C.red }}>({T2("required")})</span></div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{T2("SOP / recipe section")} <span style={{ textTransform: "none", fontWeight: 500, letterSpacing: 0, color: C.faint }}>({T2("optional — leave unset and it'll show in Kitchen Hub Planning as Unmapped")})</span></div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
                   {(RECIPE_DB.cats || []).map(function(c){
                     var active = pendingCustom.catId === c.id;
@@ -1703,7 +1720,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
             {placementGroups.length > 0 && (
               <>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
-                  {alreadySelected ? T2("Also show under these sections") : T2("Menu section")}
+                  {alreadySelected ? T2("Also show under these sections") : T2("Place in this menu")}
                 </div>
                 {alreadySelected ? (
                   <SectionPillPicker groups={placementGroups} value={pendingCustom.extraTagIds || []} multiSelect searchable
@@ -1726,8 +1743,8 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
                 style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + C.border, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                 {T2("Cancel")}
               </button>
-              <button onClick={confirmCustom} disabled={!pendingCustom.name.trim() || customSaving || (alreadySelected ? (((pendingCustom.extraTagIds || []).length === 0 && (pendingCustom.extraTagIdsInitial || []).length === 0) || !onRetagDish) : (!matchedExisting && !pendingCustom.catId))}
-                style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: customSaving ? "wait" : "pointer", opacity: (customSaving || (alreadySelected ? (((pendingCustom.extraTagIds || []).length === 0 && (pendingCustom.extraTagIdsInitial || []).length === 0) || !onRetagDish) : (!matchedExisting && !pendingCustom.catId))) ? 0.6 : 1 }}>
+              <button onClick={confirmCustom} disabled={!pendingCustom.name.trim() || customSaving || (alreadySelected && (((pendingCustom.extraTagIds || []).length === 0 && (pendingCustom.extraTagIdsInitial || []).length === 0) || !onRetagDish))}
+                style={{ padding: "7px 16px", borderRadius: 8, background: C.green, border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: customSaving ? "wait" : "pointer", opacity: (customSaving || (alreadySelected && (((pendingCustom.extraTagIds || []).length === 0 && (pendingCustom.extraTagIdsInitial || []).length === 0) || !onRetagDish))) ? 0.6 : 1 }}>
                 {customSaving ? (alreadySelected ? T2("Saving…") : T2("Adding…")) : (alreadySelected ? T2("Update sections") : (matchedExisting ? T2("Add to menu") : T2("Add dish")))}
               </button>
             </div>
