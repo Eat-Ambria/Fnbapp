@@ -26,6 +26,11 @@ import { transliterateName } from '../utils/helpers.js';
 import DishMappingModal from './DishMappingModal.jsx';
 import { renameOverrideKeys, renameOutsourced, ktKeyFor, classifyKtMove, formatMergeWarnings } from '../lib/dishRenameOps.js';
 
+// One grid template shared by the "All dishes" table's header and every
+// row, so a column added to one can never silently drift out of alignment
+// with the other: checkbox / dish / hindi / veg / type / maps-to / sections / used-in / kebab.
+const DISH_TABLE_GRID_COLS = '28px 1.6fr 1.1fr 0.55fr 0.7fr 1.4fr 1.2fr 1.2fr 0.4fr';
+
 // ═══ V74 duplicate-finder helpers ══════════════════════════════════
 // Normalize: lowercase, strip punctuation, collapse whitespace. Keeps
 // Devanagari range so Hindi names normalize sensibly too.
@@ -250,6 +255,29 @@ function DishLibrary(props) {
     });
   }, []);
 
+  // Section id -> name, for the "Sections" column below — this table only
+  // needs the name, not the full catalogue-section row shape DishSectionsEditor
+  // loads for itself (a separate subscription on the same table is the
+  // established pattern here, same as every other screen-level channel).
+  var [sectionNameById, setSectionNameById] = useState({});
+  useEffect(function(){
+    var cancelled = false;
+    function load() {
+      fetchAllRows(function(){ return supabase.from('dish_catalogue_sections').select('id, name'); }).then(function(rows){
+        if (cancelled) return;
+        var m = {};
+        (rows || []).forEach(function(s){ m[s.id] = s.name; });
+        setSectionNameById(m);
+      });
+    }
+    load();
+    if (!supabase) return function(){ cancelled = true; };
+    var ch = supabase.channel('dish_library_section_names_' + Date.now())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_catalogue_sections' }, load)
+      .subscribe();
+    return function(){ cancelled = true; supabase.removeChannel(ch); };
+  }, []);
+
   // ── Data ─────────────────────────────────────────────────────────
   var enriched = useMemo(function() {
     // Sections tab doesn't use any of this — skip the per-dish package/Hindi/store
@@ -276,9 +304,10 @@ function DishLibrary(props) {
         catName: d.catName || '',
         catId: d.catId || '',
         diet: d.diet || null,
+        sections: (d.section_ids || []).map(function(id){ return sectionNameById[id]; }).filter(Boolean),
       };
     });
-  }, [props.refreshKey, showRetired, localBump, view]);
+  }, [props.refreshKey, showRetired, localBump, view, sectionNameById]);
 
   var totals = useMemo(function() {
     var t = { total: enriched.length, sop: 0, inv: 0, unmapped: 0, unused: 0 };
@@ -1115,8 +1144,9 @@ function DishLibrary(props) {
       {/* /sticky toolbar wrapper */}
 
       {/* TABLE — outer bounds the table's height to whatever viewport space is left below the toolbar, then the inner rows list does its own vertical scroll. The column header and the "Showing 500 of …" footer stay pinned around it. 320px ≈ toolbar + tabs + shellscroll padding on a standard desktop; using maxHeight (not height) means the table still shrinks naturally when there are only a handful of rows, so nothing looks oddly tall on a filtered list. */}
+      {/* DISH_TABLE_GRID_COLS — kept as one constant, not retyped per row, so the header and every row can never drift out of column alignment. */}
       <div style={{ border: '1px solid ' + C.border, borderRadius: 10, overflow: 'hidden', background: C.surface, fontSize: 12, display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 320px)' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '28px 1.6fr 1.1fr 0.55fr 0.7fr 1.4fr 1.2fr 0.4fr', gap: 8, padding: '9px 12px', background: C.bg, color: C.muted, fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.3, borderBottom: '1px solid ' + C.border, flexShrink: 0 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: DISH_TABLE_GRID_COLS, gap: 8, padding: '9px 12px', background: C.bg, color: C.muted, fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.3, borderBottom: '1px solid ' + C.border, flexShrink: 0 }}>
           <div>
             <input type="checkbox" checked={allFilteredSelected} onChange={selectAllFiltered}
               style={{ cursor: 'pointer', margin: 0 }} />
@@ -1126,6 +1156,7 @@ function DishLibrary(props) {
           <div>{T2('Veg')}</div>
           <div>{T2('Type')}</div>
           <div>{T2('Maps to')}</div>
+          <div>{T2('Sections')}</div>
           <div>{T2('Used in')}</div>
           <div></div>
         </div>
@@ -1158,7 +1189,7 @@ function DishLibrary(props) {
           return (
             <div key={d.dish_name}
               style={{
-                display: 'grid', gridTemplateColumns: '28px 1.6fr 1.1fr 0.55fr 0.7fr 1.4fr 1.2fr 0.4fr', gap: 8, padding: '9px 12px',
+                display: 'grid', gridTemplateColumns: DISH_TABLE_GRID_COLS, gap: 8, padding: '9px 12px',
                 borderTop: '1px solid ' + C.borderLight,
                 alignItems: 'center',
                 background: isSel ? C.blueBg : (d.is_active ? 'transparent' : C.bg),
@@ -1189,6 +1220,13 @@ function DishLibrary(props) {
               </div>
               <div>{typeBadge(d.type)}</div>
               <div style={{ color: mapColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mapText}</div>
+              <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                {d.sections.length === 0 && <span style={{ fontSize: 10, color: C.faint, fontStyle: 'italic' }}>{T2('unassigned')}</span>}
+                {d.sections.slice(0, 2).map(function(s) {
+                  return <span key={s} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: C.darkCard, color: C.muted, border: '1px solid ' + C.borderLight, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 110, whiteSpace: 'nowrap' }}>{s}</span>;
+                })}
+                {d.sections.length > 2 && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: C.darkCard, color: C.muted }}>+{d.sections.length - 2}</span>}
+              </div>
               <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
                 {d.packages.length === 0 && <span style={{ fontSize: 10, color: C.faint, fontStyle: 'italic' }}>{T2('unused')}</span>}
                 {d.packages.slice(0, 2).map(function(p) {

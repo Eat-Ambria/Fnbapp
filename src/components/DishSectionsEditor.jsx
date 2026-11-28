@@ -1218,7 +1218,7 @@ function DishSectionsEditor(props) {
           )}
         </div>
         {isExpanded && dishes.length > 0 && (
-          <div style={{ borderTop: '0.5px solid ' + C.borderLight }}>
+          <div style={{ borderTop: '0.5px solid ' + C.borderLight, maxHeight: 420, overflowY: 'auto' }}>
             <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={function(event){ onDishDragEnd(sec.id, event); }}>
               <SortableContext items={dishes.map(function(d){ return d.name; })} strategy={verticalListSortingStrategy}>
                 {dishes.map(function(d, di){
@@ -1397,7 +1397,9 @@ function DishSectionsEditor(props) {
               {filtered.length === 0 ? (
                 <div style={{ padding: '8px 12px 10px 40px', fontSize: 12, color: C.muted, fontStyle: 'italic' }}>No dishes match "{unassignedSearch.trim()}"</div>
               ) : (
-                filtered.map(function(d, di){ return dishRow(d, '__unassigned__', di, filtered.length); })
+                <div style={{ maxHeight: 420, overflowY: 'auto' }}>
+                  {filtered.map(function(d, di){ return dishRow(d, '__unassigned__', di, filtered.length); })}
+                </div>
               )}
             </div>
             );
