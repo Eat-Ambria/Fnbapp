@@ -458,9 +458,22 @@ export function useMenuItemGrouping(params) {
       (catSubsByParent[s.id] || []).forEach(function(sub){ validSectionIds[sub.id] = true; });
     });
 
+    // A dish carrying a sectionOverrides tag for THIS event shows ONLY under
+    // its tagged section(s) here, not also under wherever it natively lives
+    // in the catalogue — that native placement was never chosen for this
+    // specific menu, and showing it anyway reads as "this dish is also in
+    // Haldi for this event" when it isn't (reported: confusing to users
+    // browsing the grid). Native pooling is skipped entirely for an
+    // overridden dish; the override pass below is its only placement.
+    var overriddenNames = {};
+    Object.keys(sectionOverrides || {}).forEach(function(name){
+      if (normalizeOverrideIds(sectionOverrides[name]).length > 0) overriddenNames[name] = true;
+    });
+
     var bySection = {};
     var extras = [];
     visibleDishes.forEach(function(d){
+      if (overriddenNames[d.name]) return; // placed entirely by the override pass below instead
       if (d.section_id && validSectionIds[d.section_id]) {
         if (!bySection[d.section_id]) bySection[d.section_id] = [];
         bySection[d.section_id].push(d);
@@ -468,25 +481,27 @@ export function useMenuItemGrouping(params) {
         extras.push(d);
       }
     });
-    // A dish tagged (sectionOverrides, possibly to MULTIPLE sections at
-    // once) additionally shows under every one of those pills too — never
-    // relocated away from its native pooling above, just also placed into
-    // more. Mirrors groupedByPkgSection's own override pass (below), merged
-    // in BEFORE the empty-section skip further down so a section with
-    // nothing native but an override-only dish still gets its own pill
-    // (was previously silently dropped: an override-tagged dish correctly
-    // reached neither its native section's local scope nor the tagged one,
-    // since this function never consulted sectionOverrides at all until now).
+    // Places an overridden dish under every one of its tagged pills (one
+    // dish, 2+ tags, shows under all of them — mirrors groupedByPkgSection's
+    // own override pass below), merged in BEFORE the empty-section skip
+    // further down so a section with nothing native but an override-only
+    // dish still gets its own pill. Falls back to Extras only if NONE of a
+    // dish's tags resolve to a section of THIS dept (e.g. every tag belongs
+    // to a different department tab) — same fallback an unplaceable native
+    // dish gets above, so an overridden dish is never silently dropped.
     var byNameVisible = {};
     visibleDishes.forEach(function(d){ byNameVisible[d.name] = d; });
     Object.keys(sectionOverrides || {}).forEach(function(name){
       var d = byNameVisible[name];
       if (!d) return; // not visible in this dept/filter right now
+      var placedAny = false;
       normalizeOverrideIds(sectionOverrides[name]).forEach(function(targetId){
         if (!validSectionIds[targetId]) return; // not a section of THIS dept — the dept this tag's own section belongs to renders it via its own call to this same hook
         if (!bySection[targetId]) bySection[targetId] = [];
         if (bySection[targetId].indexOf(d) === -1) bySection[targetId].push(d);
+        placedAny = true;
       });
+      if (!placedAny) extras.push(d);
     });
 
     function sortWithin(list) {
