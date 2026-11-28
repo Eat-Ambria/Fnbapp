@@ -1062,7 +1062,7 @@ function DishSectionsEditor(props) {
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <button onClick={function(){ setAddPickerFor(addPickerFor === rowKey ? null : rowKey); setAddPickerSearch(''); }}
               title={isUnassigned ? 'Assign to a section' : 'Also add to another section'}
-              style={{ background: 'transparent', border: '1px solid ' + C.border, borderRadius: 6, cursor: 'pointer', padding: '3px 9px', fontSize: 13, color: C.muted, lineHeight: 1.4 }}>+</button>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap', background: 'transparent', border: '1px solid ' + C.border, borderRadius: 6, cursor: 'pointer', padding: '3px 10px', fontSize: 12.5, color: C.muted, lineHeight: 1.4 }}>+ Add section</button>
             {addPickerFor === rowKey && (function(){
               const opts = flatSectionOptions(currentIds).filter(function(o){
                 const q = addPickerSearch.trim().toLowerCase();
