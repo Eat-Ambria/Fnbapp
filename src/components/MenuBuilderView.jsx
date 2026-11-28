@@ -888,6 +888,62 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
   var [activeSectionId, setActiveSectionId] = useState(null);
   var isSearching = !!(searchQ || '').trim();
 
+  // ── Catalogue-wide search ────────────────────────────────────────────────
+  // With "Add dish" gone, searching is the only way left to find a dish that
+  // isn't already part of this build — so while searching, look across the
+  // WHOLE catalogue for this dept (deptDishes — every catalogue dish routed
+  // here, package or no package), not just what's already selected/templated/
+  // tagged (the normal grid only ever shows that narrower set). A match here
+  // is, by definition, one the normal grid does NOT already show, so there's
+  // no overlap to dedupe against.
+  var catalogueMatches = useMemo(function(){
+    if (!isSearching) return [];
+    var q = (searchQ || '').trim().toLowerCase();
+    return (deptDishes || []).filter(function(d){
+      if (templateSet[d.name] || selectedSet[d.name] || (sectionOverrides && sectionOverrides[d.name])) return false;
+      return d.name.toLowerCase().indexOf(q) !== -1 || (d.hindi || '').toLowerCase().indexOf(q) !== -1;
+    });
+  }, [isSearching, searchQ, deptDishes, templateSet, selectedSet, sectionOverrides]);
+  // Grouped by native catalogue section purely for a readable heading ("this
+  // is where it actually lives") — these are NOT pills, nothing here is
+  // clickable to open/close, just a label over a grid of cards.
+  var catalogueMatchGroups = useMemo(function(){
+    var bySec = {};
+    catalogueMatches.forEach(function(d){
+      var key = d.section_id || '__none__';
+      if (!bySec[key]) bySec[key] = { id: key, dishes: [] };
+      bySec[key].dishes.push(d);
+    });
+    return Object.keys(bySec).map(function(key){
+      var grp = bySec[key];
+      var opt = (catalogueSectionOptions || []).find(function(o){ return o.id === key; });
+      grp.name = opt ? opt.label.replace(/^—\s*/, '') : T2('Uncategorized');
+      return grp;
+    });
+  }, [catalogueMatches, catalogueSectionOptions]);
+  // Picking a catalogue-wide match brings its real section in too (same
+  // "Add section from library" action the button below triggers — idempotent,
+  // so this is harmless even if that section is somehow already present),
+  // THEN selects the dish — it never lands selected with no pill to show
+  // under. A dish with no catalogue section at all (section_id null) just
+  // gets selected straight into Extras, same as any other unsectioned dish.
+  async function addFromCatalogueSearch(d){
+    try {
+      if (d.section_id && onAddSectionFromLibrary) {
+        // EventMenuBuilderView's own addSectionFromLibrary returns
+        // { blocked: true } when the Function Plan is locked (already
+        // alerting the user there) — bail instead of also calling onToggle,
+        // which would independently hit the same lock and alert a second
+        // time for one click. Caught by adversarial review.
+        var res = await onAddSectionFromLibrary(d.section_id, d.section_id);
+        if (res && res.blocked) return;
+      }
+      onToggle(d.name);
+    } catch (e) {
+      sayFail(T2('Could not add that dish'), e);
+    }
+  }
+
   // ── Either-or ("alternative group") pairs ───────────────────────────────
   // dishes_master.alt_group (per-package overridable via DishMappingModal's
   // "Alternative group" field — e.g. "Steam Rice" and "Jeera Rice" both
@@ -1107,9 +1163,6 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
     });
     return out;
   }, [groupedByCat, catalogueSectionOptions]);
-  function openCustomModal(){
-    setPendingCustom({ name: '', catId: '', sectionId: activeSectionId || '', catalogueSectionId: '' });
-  }
   // Search the dish library as the user types, so "add dish" reuses an
   // existing dish (and its recipe/ingredients) instead of silently creating a
   // near-duplicate — same mistake that caused the "Khao Soey"/"Khao Sucsey"
@@ -1277,16 +1330,24 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
               boxSizing: "border-box", fontFamily: K.fontBody, outline: "none" }} />
         </div>
         )}
-        {/* Moved up onto the search row. On a row of their own they cost the
-            page a full button's height for two controls used once a session.
+        {/* "Add dish" (free-text create-a-new-dish) removed by request — it
+            was how wrong/duplicate dishes got created (a typo or near-match
+            silently became a brand-new catalogue entry instead of reusing
+            the real one). Finding and adding an EXISTING dish now only
+            happens two ways: "Add section" below (browse a whole catalogue
+            section), or searching above, which now searches the WHOLE
+            catalogue for this dept, not just what's already in this build
+            (see the "Also in the catalogue" block below the grid) — picking
+            one from there brings its real section in too, so it's never
+            orphaned with no pill to show under. The `pendingCustom` modal
+            itself stays wired (confirmCustom, onAddCustomDish...) — "Add
+            section"'s own "create a new section → add a dish into it" flow
+            (confirmCreateSection) still opens it directly, for a brand-new
+            ad hoc section that has nothing in the catalogue yet to pull from.
+            Moved up onto the search row. On a row of their own it cost the
+            page a full button's height for one control used once a session.
             Hidden while an either-or pick is pending — "changing the menu
-            further" is exactly what these do. */}
-        {!gated && onAddCustomDish && (
-          <KButton size="sm" icon="plus" onClick={openCustomModal}
-            style={{ padding: "10px 15px", borderRadius: K.rPill, fontSize: 13, flexShrink: 0, background: "#FFFFFF", borderColor: K.cardWarmLine }}>
-            {T2("Add dish")}
-          </KButton>
-        )}
+            further" is exactly what this does. */}
         {!gated && onAddSectionFromLibrary && (
           <KButton size="sm" icon="layers" onClick={openSectionModal}
             style={{ padding: "10px 15px", borderRadius: K.rPill, fontSize: 13, flexShrink: 0, background: "#FFFFFF", borderColor: K.cardWarmLine }}>
@@ -1637,6 +1698,35 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
           </div>
         );
       })}
+
+      {/* Whole-catalogue search results — only while actually searching, and
+          only dishes not already shown above (anything already in this build
+          shows via the normal grid, which already covers every search match
+          within it). Not pills: just a label naming where each group really
+          lives in the catalogue. Picking a card brings that whole section in
+          (see addFromCatalogueSearch) rather than selecting an orphan with
+          nowhere to show up afterward. */}
+      {!gated && isSearching && catalogueMatchGroups.length > 0 && (
+        <div style={{ marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: C.muted, marginBottom: 14, fontStyle: "italic" }}>
+            {T2('Also in the catalogue — picking one brings its section into this menu too')}
+          </div>
+          {catalogueMatchGroups.map(function(grp){
+            return (
+              <div key={grp.id} style={{ marginBottom: 24 }}>
+                <div style={{ ...type.label, fontSize: 11, color: K.hdrMeta, letterSpacing: 0.6, marginBottom: 10, padding: "0 2px" }}>
+                  {grp.name} <span style={{ color: C.muted, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· {grp.dishes.length}</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14 }}>
+                  {grp.dishes.map(function(d){
+                    return <DishCard key={d.name} d={d} templateSet={templateSet} selectedSet={selectedSet} outsourcedSet={outsourcedSet} onToggleOutsourced={onToggleOutsourced} focSet={focSet} onToggleFoc={onToggleFoc} salesMeta={salesMeta} onToggle={function(){ addFromCatalogueSearch(d); }} />;
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* V87 — custom dish: confirm its SOP/recipe category + which section/
           subsection pill to place it in, before adding it (mirrors Build

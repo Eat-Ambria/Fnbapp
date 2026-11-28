@@ -1478,7 +1478,13 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
   // under the chosen pill — no event_items insert, so nothing is auto-picked;
   // the user selects individual dishes from there via the normal onToggle.
   async function addSectionFromLibrary(catSectionId, targetId) {
-    if (blockIfMenuLocked()) return;
+    // A distinguishable { blocked: true } (rather than a bare `return;`,
+    // indistinguishable from this function's own always-undefined success
+    // return) lets a caller that chains this with another lock-gated action
+    // (addFromCatalogueSearch, below) bail out after ONE alert instead of
+    // also attempting — and getting blocked-and-alerted by — the second one.
+    // Caught by adversarial review.
+    if (blockIfMenuLocked()) return { blocked: true };
     var subIds = (catSubsByParent[catSectionId] || []).map(function(s){ return s.id; });
     var result = await menuItemOps.addSectionFromLibrary(itemsOpsConfig, sectionOverrides, catSectionId, targetId, subIds, setSectionOverrides);
     // "Nothing is auto-picked" (above) is about SELECTION only — this still
