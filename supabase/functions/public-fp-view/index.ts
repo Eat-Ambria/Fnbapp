@@ -229,12 +229,22 @@ Deno.serve(async (req) => {
       (itemsRes.data || []).forEach((r: any) => { if (r.dish_name) dishNames.add(r.dish_name); });
       (menuPackage?.dishes || []).forEach((n: string) => { if (n) dishNames.add(n); });
       let dishMaster: any[] = [];
+      let dishSectionLinks: any[] = [];
       if (dishNames.size > 0) {
         const dmRes = await sb.from("dishes_master")
           .select("dish_name, is_active, notes, image_url, section_id, sort_in_section, diet, no_auto_select, alt_group")
           .in("dish_name", Array.from(dishNames));
         if (dmRes.error) return json({ ok: false, reason: dmRes.error.message });
         dishMaster = dmRes.data || [];
+        // The TRUE many-to-many dish<->catalogue-section membership (see
+        // src/lib/dishSections.js) -- without this, every dish's section_id/
+        // section_ids here resolve to null/[] (dishes_master.section_id is a
+        // legacy, no-longer-synced column), so this public print drifted out
+        // of step with the authenticated one: every dish fell into "Extras"
+        // instead of its real section, and department routing broke too.
+        dishSectionLinks = await fetchAllRows(() =>
+          sb.from("dish_section_links").select("dish_name, section_id, sort_order").in("dish_name", Array.from(dishNames))
+        );
       }
 
       return json({
@@ -247,6 +257,7 @@ Deno.serve(async (req) => {
         sections: sectionsRes.data || [],
         menuPackage,
         dishMaster,
+        dishSectionLinks,
         salesConfigDefs: defsRes.data || [],
         salesConfigOptions: optsRes.data || [],
       });

@@ -140,7 +140,13 @@ export function PublicFPHub({ lang = "en" }) {
           // effectiveSectionIdByDish resolves through MENU_PACKAGE_SECTIONS).
           if (data.menuPackage.sections) hydrateMenuPackageSections({ [data.menuPackage.name]: data.menuPackage.sections });
         }
-        hydrateRecipeData({ dishMaster: buildDishMasterMap(data.dishMaster) });
+        // buildDishMasterMap needs dish_section_links (the true many-to-many
+        // join table) as its second argument to bake in a correct
+        // section_id/section_ids per dish -- without it every dish here
+        // resolved to no section at all, which is exactly how this page
+        // drifted from the authenticated in-app FP view (dept grouping and
+        // "Extras" placement both depend on it).
+        hydrateRecipeData({ dishMaster: buildDishMasterMap(data.dishMaster, data.dishSectionLinks), dishSectionLinks: data.dishSectionLinks || [] });
         hydrateSalesConfigs(buildDeptConfigs(data.salesConfigDefs, data.salesConfigOptions));
         setDetail(data);
       })
