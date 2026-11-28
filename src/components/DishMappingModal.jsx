@@ -300,19 +300,41 @@ function DishMappingModal(props) {
     finally { setSaving(''); }
   }
 
-  // Menu section — real catalogue placement (dishes_master.section_id), vs
-  // the fuzzy/guessable SOP category above. Saves immediately on pick, same
-  // as the SOP pills; clearing goes through SectionPillPicker's own "✕"
-  // pill, not a re-click. sort_in_section resets to null on a real change —
-  // it was ordinal to whichever section the dish is LEAVING, and the
-  // Sections tab is where fine within-section ordering actually happens.
+  // Menu section — real catalogue placement, via dish_section_links (the
+  // true many-to-many join table — see src/lib/dishSections.js), not the
+  // legacy dishes_master.section_id scalar this field used to write
+  // straight to. That column stopped being read anywhere once the Sections
+  // tab (and everything else) moved to the join table, so a save here used
+  // to silently vanish — the dish never actually appeared in that section
+  // there, which is exactly the bug this fixes. Saves immediately on pick,
+  // same as the SOP pills; clearing goes through SectionPillPicker's own
+  // "✕" pill, not a re-click. Only ever replaces the ONE membership this
+  // field itself last pointed at (detailSectionId, the primary tie-break) —
+  // any OTHER section the dish was additionally tagged into from the
+  // Sections tab is left untouched, matching that screen's own additive
+  // model rather than silently wiping it.
   async function saveMenuSection(nextId) {
     if (!dishName || !isAdmin || nextId === detailSectionId) return;
+    var oldId = detailSectionId;
     setSaving('section');
     try {
-      var res = await supabase.from('dishes_master').update({ section_id: nextId || null, sort_in_section: null }).eq('dish_name', dishName);
-      if (res.error) throw res.error;
-      upsertDishMaster(dishName, { section_id: nextId || null });
+      if (oldId) {
+        var delRes = await supabase.from('dish_section_links').delete().eq('dish_name', dishName).eq('section_id', oldId);
+        if (delRes.error) throw delRes.error;
+      }
+      if (nextId) {
+        var insRes = await supabase.from('dish_section_links')
+          .upsert({ dish_name: dishName, section_id: nextId, sort_order: 0 }, { onConflict: 'dish_name,section_id', ignoreDuplicates: true });
+        if (insRes.error) throw insRes.error;
+      }
+      // Optimistic local patch so this modal's own dropdown reflects the
+      // change immediately, same reasoning as every other dish_section_links
+      // writer (DishSectionsEditor.jsx) — the realtime round-trip will
+      // reconcile section_id's real tie-break shortly after regardless.
+      var prevIds = (DISH_MASTER[dishName] && DISH_MASTER[dishName].section_ids) || [];
+      var nextIds = prevIds.filter(function(id){ return id !== oldId; });
+      if (nextId && nextIds.indexOf(nextId) === -1) nextIds = nextIds.concat([nextId]);
+      upsertDishMaster(dishName, { section_id: nextIds[0] || null, section_ids: nextIds });
       notify();
     } catch (e) { alert('Menu section save failed: ' + e.message); }
     finally { setSaving(''); }

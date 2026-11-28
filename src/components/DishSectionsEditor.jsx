@@ -1237,8 +1237,8 @@ function DishSectionsEditor(props) {
             No dishes assigned yet. Move dishes here from Unassigned or from other sections using the dropdown.
           </div>
         )}
-        {!isSub && subs.length > 0 && (
-          <div style={{ borderTop: '0.5px solid ' + C.borderLight, padding: '8px 12px 8px 0' }}>
+        {!isSub && isExpanded && subs.length > 0 && (
+          <div style={{ borderTop: '0.5px solid ' + C.borderLight, padding: '8px 12px 8px 0', maxHeight: 460, overflowY: 'auto' }}>
             <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={function(event){ onSubDragEnd(sec.id, event); }}>
               <SortableContext items={subs.map(function(s){ return s.id; })} strategy={verticalListSortingStrategy}>
                 {subs.map(function(sub){
