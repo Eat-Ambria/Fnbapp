@@ -624,6 +624,23 @@ export function useMenuItemGrouping(params) {
     });
     var consumed = {};
 
+    // A dish tagged (sectionOverrides) for THIS event shows ONLY under its
+    // tagged pill(s) below, not ALSO here via incidental catalogue-section
+    // pooling — UNLESS it's a genuine PACKAGE DEFAULT (pkgDishNameSet inside
+    // resolveOwnDishes), which stays visible in its home section regardless
+    // (same "Steam Rice stays in Rice Factory, tag is purely additive"
+    // precedent the override pass below already documents — this mirrors
+    // that exact distinction for the catalogue-browse pool: a deliberate
+    // package placement always stays, an incidental "also browsable from the
+    // full linked catalogue section" one doesn't once the dish has its own
+    // event-specific placement). Matches groupedBySection's identical fix —
+    // reported there first: a dish tagged elsewhere kept also showing under
+    // wherever it natively lives in the catalogue, confusing to browse.
+    var overriddenNames = {};
+    Object.keys(sectionOverrides || {}).forEach(function(name){
+      if (normalizeOverrideIds(sectionOverrides[name]).length > 0) overriddenNames[name] = true;
+    });
+
     function iconFor(sopCat) {
       if (!sopCat) return '🍽';
       var cat = (RECIPE_DB.cats || []).find(function(c){ return c.name === sopCat || c.id === sopCat; });
@@ -661,7 +678,11 @@ export function useMenuItemGrouping(params) {
     // sop_category for display/synthesis — never read for dept routing.
     function resolveOwnDishes(ownDishes, catalogueSectionId, labelSec) {
       var pkgDishNames = (ownDishes || []).filter(Boolean);
-      var directCatDishes = catalogueSectionId ? byCatSectionId[catalogueSectionId] : null;
+      var pkgDishNameSet = {};
+      pkgDishNames.forEach(function(n){ pkgDishNameSet[n] = true; });
+      function notRedundantlyOverridden(d) { return !overriddenNames[d.name] || pkgDishNameSet[d.name]; }
+      var directCatDishesRaw = catalogueSectionId ? byCatSectionId[catalogueSectionId] : null;
+      var directCatDishes = directCatDishesRaw ? directCatDishesRaw.filter(notRedundantlyOverridden) : directCatDishesRaw;
       // The linked catalogue section may itself have subsections (Dish
       // Library → Sections), each holding its own slice of the full catalogue
       // list. Pool ALL of them, grouped by subsection, instead of only
@@ -677,7 +698,7 @@ export function useMenuItemGrouping(params) {
           subGroups.push({ id: catalogueSectionId, name: labelSec.name, dishes: pinnedRest(directCatDishes, pkgDishNames) });
         }
         catSubs.forEach(function(sub){
-          var subDishes = byCatSectionId[sub.id] || [];
+          var subDishes = (byCatSectionId[sub.id] || []).filter(notRedundantlyOverridden);
           if (subDishes.length === 0) return;
           allCatDishes = allCatDishes.concat(subDishes);
           subGroups.push({ id: sub.id, name: sub.name, dishes: pinnedRest(subDishes, pkgDishNames) });
