@@ -1330,24 +1330,24 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
               boxSizing: "border-box", fontFamily: K.fontBody, outline: "none" }} />
         </div>
         )}
-        {/* "Add dish" (free-text create-a-new-dish) removed by request — it
-            was how wrong/duplicate dishes got created (a typo or near-match
-            silently became a brand-new catalogue entry instead of reusing
-            the real one). Finding and adding an EXISTING dish now only
-            happens two ways: "Add section" below (browse a whole catalogue
-            section), or searching above, which now searches the WHOLE
-            catalogue for this dept, not just what's already in this build
-            (see the "Also in the catalogue" block below the grid) — picking
-            one from there brings its real section in too, so it's never
-            orphaned with no pill to show under. The `pendingCustom` modal
-            itself stays wired (confirmCustom, onAddCustomDish...) — "Add
-            section"'s own "create a new section → add a dish into it" flow
-            (confirmCreateSection) still opens it directly, for a brand-new
-            ad hoc section that has nothing in the catalogue yet to pull from.
-            Moved up onto the search row. On a row of their own it cost the
-            page a full button's height for one control used once a session.
+        {/* "Add dish" was removed for a while (free-text create was how a
+            typo or near-match silently became a brand-new catalogue entry
+            instead of reusing the real one) in favor of the catalogue-wide
+            search below the grid — but that only ever surfaces an EXISTING
+            dish, and tucking a genuinely new one behind "Add section"'s own
+            "create a section → opens Add Dish" side-effect left no direct,
+            discoverable way to add one. Restored as its own button: opens
+            the same pendingCustom modal directly (search-the-library-first,
+            fall through to create-new), pre-targeted at whichever pill is
+            active so a brand-new dish lands somewhere sensible by default.
             Hidden while an either-or pick is pending — "changing the menu
             further" is exactly what this does. */}
+        {!gated && (
+          <KButton size="sm" icon="plus" onClick={function(){ setPendingCustom({ name: '', catId: '', sectionId: activeSectionId || '', catalogueSectionId: '' }); }}
+            style={{ padding: "10px 15px", borderRadius: K.rPill, fontSize: 13, flexShrink: 0, background: "#FFFFFF", borderColor: K.cardWarmLine }}>
+            {T2("Add dish")}
+          </KButton>
+        )}
         {!gated && onAddSectionFromLibrary && (
           <KButton size="sm" icon="layers" onClick={openSectionModal}
             style={{ padding: "10px 15px", borderRadius: K.rPill, fontSize: 13, flexShrink: 0, background: "#FFFFFF", borderColor: K.cardWarmLine }}>
