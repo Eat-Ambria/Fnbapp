@@ -218,7 +218,7 @@ function Bullet({ children, dot, changed }) {
   </div>;
 }
 
-export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder, dishSectionName, dishSectionId, packageName, menuDiffByDept, configsByDept, outsourcedSet, currentUser, onAckChef, onClose, T2 }) {
+export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder, dishSectionName, dishSectionId, dishPrintPlacements, packageName, menuDiffByDept, configsByDept, outsourcedSet, currentUser, onAckChef, onClose, T2 }) {
   var [acking, setAcking] = useState(false);
   function handleAck() {
     if (!onAckChef || acking) return;
@@ -324,13 +324,25 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
     });
     return out;
   })();
-  // Reorders an already section-sorted name list so every alt_group dish
-  // comes first (as one contiguous run, so the "Options" heading below
-  // shows exactly once) — relative order within each bucket is untouched.
-  function pullOptionsFirst(names) {
-    var optioned = names.filter(function(n){ return !!altGroupOf[n]; });
-    var rest = names.filter(function(n){ return !altGroupOf[n]; });
-    return optioned.concat(rest);
+  // Expands an already-sorted dish-name list into one entry per (dish,
+  // heading) pair — most dishes have exactly one placement (dishPrintPlacements
+  // falls back to the single effective section for those, byte-identical to
+  // before); a genuine multi-section tag produces 2+ entries for the SAME
+  // dish name, one per heading it should print under (see
+  // EventMenuBuilderView.jsx's dishPrintPlacements for why). Re-sorted by
+  // each entry's own section order afterward — Array.sort is stable in every
+  // browser this app targets, so entries sharing one order keep their
+  // incoming relative order (the diet/name ordering sortedByVeg already
+  // applied). Options dishes are pinned to the very front (order -1,
+  // beating any real section order) regardless of this re-sort.
+  function expandPlacements(names) {
+    var flat = [];
+    names.forEach(function(n){
+      var placements = (dishPrintPlacements && dishPrintPlacements[n]) || [{ name: (dishSectionName && dishSectionName[n]) || 'Extras', order: (dishSectionOrder && dishSectionOrder[n] != null) ? dishSectionOrder[n] : Infinity }];
+      placements.forEach(function(p){ flat.push({ name: n, sectionName: p.name, order: altGroupOf[n] ? -1 : p.order }); });
+    });
+    flat.sort(function(a, b){ return a.order - b.order; });
+    return flat;
   }
   function dishChanged(name) {
     if (!ackSnap) return false;
@@ -680,18 +692,19 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                             .concat((diff.removed || []).map(function(n){ return { name: n, sign: '-' }; }));
                           var signByName = {};
                           combined.forEach(function(x){ signByName[x.name] = x.sign; });
-                          var sortedNames = pullOptionsFirst(sortedByVeg(combined.map(function(x){ return x.name; }), dishSectionOrder));
+                          var flatEntries = expandPlacements(sortedByVeg(combined.map(function(x){ return x.name; }), dishSectionOrder));
                           var lastSec;
                           return (
                             <>
                               <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2(meta.label)})</span></SubHead>
-                              {sortedNames.map(function(n){
-                                var sec = altGroupOf[n] ? T2('Options') : ((dishSectionName && dishSectionName[n]) || 'Extras');
+                              {flatEntries.map(function(entry, ei){
+                                var n = entry.name;
+                                var sec = altGroupOf[n] ? T2('Options') : entry.sectionName;
                                 var isNewSection = sec !== lastSec;
                                 lastSec = sec;
                                 var sign = signByName[n];
                                 return (
-                                  <React.Fragment key={n}>
+                                  <React.Fragment key={n + '::' + ei}>
                                     {isNewSection && <SectionSubHead>{sec === 'Extras' ? T2('Extras') : sec}</SectionSubHead>}
                                     <Bullet dot={false} changed={dishChanged(n)}>
                                       {sign === '+'
@@ -750,17 +763,18 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                 {orderedDepts.map(function(d){
                   var names = (itemsByDept && itemsByDept[d.id]) || [];
                   if (names.length === 0) return null;
-                  var sorted = pullOptionsFirst(sortedByVeg(names, dishSectionOrder));
+                  var flatEntries = expandPlacements(sortedByVeg(names, dishSectionOrder));
                   var lastSection; // undefined sentinel — first item always re-evaluates
                   return (
                     <div key={d.id}>
                       <SubHead>{d.name}</SubHead>
-                      {sorted.map(function(n){
-                        var sec = altGroupOf[n] ? T2('Options') : ((dishSectionName && dishSectionName[n]) || 'Extras');
+                      {flatEntries.map(function(entry, ei){
+                        var n = entry.name;
+                        var sec = altGroupOf[n] ? T2('Options') : entry.sectionName;
                         var isNewSection = sec !== lastSection;
                         lastSection = sec;
                         return (
-                          <React.Fragment key={n}>
+                          <React.Fragment key={n + '::' + ei}>
                             {isNewSection && <SectionSubHead>{sec === 'Extras' ? T2('Extras') : sec}</SectionSubHead>}
                             <Bullet changed={dishChanged(n)}>{n}{outTag(n)}</Bullet>
                           </React.Fragment>

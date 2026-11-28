@@ -1088,6 +1088,48 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     return out;
   }, [effectiveSectionIdByDish, sections]);
 
+  // For the printed Function Plan specifically — NOT dept-routing or kitchen
+  // tracking, which both stay single-valued per dish (see
+  // effectiveSectionIdByDish's own comment above; a dish's prep quantity is
+  // one card regardless of how many headings it prints under): a dish
+  // tagged to a genuine 2+-section sectionOverrides array prints under EVERY
+  // one of those headings, by request, instead of collapsing to one. A
+  // scalar tag or no tag keeps today's single placement — this is additive
+  // display only, built the same way effectiveSectionIdByDish's own
+  // resolver works, just not collapsed to a single id.
+  var dishPrintPlacements = useMemo(function(){
+    var byId = {};
+    (sections || []).forEach(function(s){ byId[s.id] = s; });
+    var resolveOv = buildOverrideResolver(sections, templateInfo.name ? (MENU_PACKAGE_SECTIONS[templateInfo.name] || []) : []);
+    function orderKeyFor(sectionId) {
+      var s = sectionId && byId[sectionId];
+      if (!s) return null;
+      var parent = s.parent_section_id && byId[s.parent_section_id];
+      return parent ? (parent.sort_order || 0) * 1000 + (s.sort_order || 0) : (s.sort_order || 0) * 1000;
+    }
+    var out = {};
+    (allDishes || []).forEach(function(d){
+      var raw = sectionOverrides && sectionOverrides[d.name];
+      if (Array.isArray(raw) && raw.length > 1) {
+        var seen = {};
+        var placements = [];
+        raw.forEach(function(id){
+          var resolved = resolveOv(id);
+          if (!resolved || !byId[resolved] || seen[resolved]) return;
+          seen[resolved] = true;
+          var ord = orderKeyFor(resolved);
+          placements.push({ name: byId[resolved].name, order: ord == null ? Infinity : ord });
+        });
+        if (placements.length > 1) { out[d.name] = placements; return; }
+      }
+      var sid = effectiveSectionIdByDish[d.name];
+      var s = sid && byId[sid];
+      var ord2 = sid ? orderKeyFor(sid) : null;
+      out[d.name] = [{ name: s ? s.name : 'Extras', order: ord2 == null ? Infinity : ord2 }];
+    });
+    return out;
+  }, [allDishes, sections, sectionOverrides, templateInfo.name, effectiveSectionIdByDish]);
+
   // Dishes in a no_auto_select section (Soup Station: pick any 2-3 of 8-10),
   // OR individually flagged no_auto_select on dishes_master itself (a 2-way
   // choice sitting inside an otherwise normal auto-select section), are never
@@ -1648,6 +1690,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
         dishSectionOrder={dishSectionOrder}
         dishSectionName={dishSectionName}
         dishSectionId={effectiveSectionIdByDish}
+        dishPrintPlacements={dishPrintPlacements}
         packageName={templateInfo.name}
         menuDiffByDept={menuDiffByDept}
         configsByDept={printConfigs}
