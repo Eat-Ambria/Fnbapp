@@ -1670,8 +1670,6 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       <MenuPrintView
         event={event}
         dishItems={dishItems}
-        dishSectionOrder={dishSectionOrder}
-        dishSectionName={dishSectionName}
         onClose={function(){
           // Jumped straight here via the list's "🖨 Menu" button — same
           // reasoning as showFPPrint's onClose above: go back to the list,

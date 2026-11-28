@@ -1,36 +1,30 @@
 // Ambria FnB — Menu Print View ("Kitchen Quantity Sheet")
-// A plain two-column print of an event's SELECTED dishes, grouped and
-// ordered by their real Dish Library (dish_catalogue_sections) section —
-// not the package's own section layout, not a dept split. Built for
+// A plain print of an event's SELECTED dishes, grouped by their SOP/recipe
+// category (RECIPE_DB.cats via getCatForDish — "the SOP section mapping",
+// the same taxonomy Dish Library's own "Maps to"/"SOP" badge uses), ONE
+// PRINTED PAGE PER SOP SECTION so a kitchen head can hand each page to
+// whichever station is actually cooking those dishes. Built for
 // back-of-house use during/after service: each dish gets three blank boxes
 // (Made / Actual Used / Left) the kitchen fills in by hand, not the
 // client-facing Preview Menu (that one's the branded, paginated, photo-led
-// version — a different artifact for a different reader). Originally a
-// dense single-page masonry list with no write-in room at all — switched
-// to a fixed 2-column layout with a wide gutter specifically to make room
-// for those boxes per dish; it now reliably runs to 2+ printed pages for a
-// large menu, which is an intentional trade against the old "fit one page"
-// goal, not a bug.
+// version — a different artifact for a different reader).
 //
-// dishSectionOrder/dishSectionName are passed in rather than re-derived here
-// on purpose — EventMenuBuilderView already computes these as the ONE
-// authoritative dish->section resolution (effectiveSectionIdByDish), which
-// accounts for per-event sectionOverrides ("Add section from library", the
-// add-dish modal's section tag) and package-section catalogue links, not
-// just dishes_master.section_id directly. A second, independent resolution
-// here would silently disagree with the FP print for exactly those cases
-// (an ad-hoc dish tagged to a section) — the same drift this file's own
-// EventMenuBuilderView already has a comment warning about for its own
-// menuDiffByDept/dishSectionOrder split.
+// Deliberately grouped by SOP/recipe category, NOT by the catalogue/menu
+// section (dish_catalogue_sections) the printed Function Plan and the
+// client-facing menu use — this was changed by request: the menu's own
+// section (e.g. "Fresh Juice", "Chaat Station") is how a dish is PRESENTED
+// to a client, which routinely differs from which kitchen STATION actually
+// cooks it (that's what the recipe category/SOP mapping encodes). Assigning
+// kitchen staff a sheet makes sense per station, not per menu section.
 // Place in: src/components/MenuPrintView.jsx
 
 import React, { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
-import { resolveDishHindi } from '../data/recipeData.js';
+import { resolveDishHindi, getCatForDish, RECIPE_DB } from '../data/recipeData.js';
 
-export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionName, onClose }) {
+export function MenuPrintView({ event, dishItems, onClose }) {
   // The sheet's own language is asked explicitly every time it's opened,
   // independent of the app's own UI-language toggle — a kitchen print is
   // read by whoever's at the pass that day, not necessarily the staff
@@ -64,32 +58,35 @@ export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionN
   }, [event]);
 
   var groups = useMemo(function(){
-    var bySection = {}; // sectionName -> { name, order, dishes: [] }
+    // Same declared order Dish Library's own recipe categories are kept in
+    // (RECIPE_DB.cats is sorted by sort_order at hydrate — see dbConfig.js's
+    // transformRecipeCategories) — a category not in that list (shouldn't
+    // happen, but getCatForDish's own fallback can synthesize one) sorts
+    // after every real one instead of arbitrarily.
+    var order = (RECIPE_DB.cats || []).map(function(c){ return c.id; });
+    var byCat = {}; // catId -> { name, order, dishes: [] }
     (dishItems || []).forEach(function(row){
       var name = row.dish_name;
       if (!name) return;
-      // dishSectionName's own fallback for "no real section" is the literal
-      // string 'Extras' (see EventMenuBuilderView) — relabeled to "Other"
-      // here to match what was actually asked for, without forking the
-      // underlying resolution itself.
-      var rawName = (dishSectionName && dishSectionName[name]) || 'Extras';
-      var sectionName = rawName === 'Extras' ? T2('Other') : T2(rawName);
-      var order = (dishSectionOrder && dishSectionOrder[name] != null) ? dishSectionOrder[name] : Infinity;
-      var key = sectionName;
-      if (!bySection[key]) bySection[key] = { key: key, name: sectionName, order: order, dishes: [] };
-      bySection[key].dishes.push({
+      var cat = getCatForDish(name);
+      var key = cat.id;
+      if (!byCat[key]) {
+        var idx = order.indexOf(key);
+        byCat[key] = { key: key, name: T2(cat.name), order: idx === -1 ? Infinity : idx, dishes: [] };
+      }
+      byCat[key].dishes.push({
         name: name,
         hindi: resolveDishHindi ? resolveDishHindi(name) : '',
       });
     });
 
-    var out = Object.values(bySection);
+    var out = Object.values(byCat);
     out.forEach(function(g){
       g.dishes.sort(function(a, b){ return a.name.localeCompare(b.name); });
     });
     out.sort(function(a, b){ return a.order - b.order; });
     return out;
-  }, [dishItems, dishSectionOrder, dishSectionName, printLang]);
+  }, [dishItems, printLang]);
 
   var totalDishes = groups.reduce(function(n, g){ return n + g.dishes.length; }, 0);
 
@@ -200,18 +197,21 @@ export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionN
             by hand after service, which a narrow column has no space for.
             columnRule draws the same dashed divider a manual grid would,
             for free. */}
-        <div style={{ columnCount: 2, columnGap: 44, columnRule: "1px dashed #bbb" }}>
-          {groups.map(function(g){
-            return (
-              <div key={g.key} style={{ breakInside: "avoid", marginBottom: 12 }}>
-                {/* breakInside:avoid above is only a request — a section
-                    taller than a whole column/page gets split anyway, and
-                    without breakAfter:avoid here the split can land right
-                    after the title or the column labels, stranding either
-                    one alone with no dishes under it. */}
-                <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, borderBottom: "1.5px solid #000", paddingBottom: 2, marginBottom: 4, breakAfter: "avoid" }}>
-                  {g.name}
-                </div>
+        {/* One page per SOP section (by request, so a kitchen head can hand
+            each page to whichever station is cooking it) — each group is
+            its own 2-column box rather than the whole sheet sharing one
+            multicol flow, and breakBefore:"page" forces every section but
+            the first onto a fresh page regardless of how much room was left
+            on the previous one (a shared flow would otherwise let the next
+            section start filling whatever column space the last one left
+            over, same page). */}
+        {groups.map(function(g, gi){
+          return (
+            <div key={g.key} style={{ breakBefore: gi === 0 ? "auto" : "page", marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, borderBottom: "2px solid #000", paddingBottom: 4, marginBottom: 8, breakAfter: "avoid" }}>
+                {g.name} <span style={{ fontWeight: 500, fontSize: 10, color: "#555", textTransform: "none" }}>· {g.dishes.length} {T2("dishes")}</span>
+              </div>
+              <div style={{ columnCount: 2, columnGap: 44, columnRule: "1px dashed #bbb" }}>
                 {/* 3 write-in columns now (Made / Actual Used / Left) instead
                     of 2 — narrower boxes (44px, was 54px) and a tighter gap
                     (6px, was 8px) to fit all three without shrinking the
@@ -238,9 +238,9 @@ export function MenuPrintView({ event, dishItems, dishSectionOrder, dishSectionN
                   );
                 })}
               </div>
-            );
-          })}
-        </div>
+            </div>
+          );
+        })}
       </div>
     </div>,
     document.body
