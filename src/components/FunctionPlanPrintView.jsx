@@ -16,14 +16,14 @@ import { C } from '../data/constants.js';
 import { localDateStr } from '../utils/helpers.js';
 import { SALES_DEPTS, DEPT_CONFIGS, isDefaultConfigValue } from '../data/salesConfig.js';
 import { TIME_FIELD_GROUPS, EQUIP_FIELDS, getLmsPlateInfo, calcDriversFoodTotal } from './FunctionPlanTab.jsx';
-import { resolveDishVeg } from '../data/recipeData.js';
+import { resolveDishDiet } from '../data/recipeData.js';
 
-// Veg first, then unclassified, then non-veg. resolveDishVeg returns
-// true/false/null (never guesses from the name), so an unclassified dish
-// sits in its own middle bucket rather than being silently called veg or non-veg.
+// Veg first, then egg, then unclassified, then non-veg. resolveDishDiet
+// never guesses from the name, so an unclassified dish sits in its own
+// bucket rather than being silently called veg or non-veg.
 function dietRank(name) {
-  var v = resolveDishVeg(name);
-  return v === true ? 0 : v === false ? 2 : 1;
+  var v = resolveDishDiet(name);
+  return v === 'veg' ? 0 : v === 'egg' ? 1 : v === 'nonveg' ? 3 : 2;
 }
 // Primary order is the dish's catalogue section (Snacks before Main Course,
 // etc. — dishSectionOrder maps dish name -> that section's sort_order, built

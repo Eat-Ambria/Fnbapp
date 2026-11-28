@@ -35,12 +35,13 @@ import { resolveDeptForOverrideTarget } from '../lib/sectionDept.js';
 import { normalizeOverrideIds } from '../lib/catalogueSection.js';
 
 // A dish's diet tag: explicit sales_items_meta.diet_tag wins; otherwise fall
-// back to the dish library's veg/non-veg classification (dishes_master.is_veg)
-// so an unclassified sales tag doesn't silently default every non-veg dish to
-// "Veg". Only truly unclassified-everywhere dishes fall through to DEFAULT_DIET.
+// back to the dish library's own veg/non-veg/egg classification
+// (dishes_master.diet) so an unclassified sales tag doesn't silently default
+// every non-veg dish to "Veg". Only truly unclassified-everywhere dishes
+// fall through to DEFAULT_DIET.
 export function dietForDish(d, meta) {
   if (meta && meta.diet_tag) return meta.diet_tag;
-  if (d && d.is_veg != null) return d.is_veg ? 'veg' : 'nonveg';
+  if (d && d.diet) return d.diet;
   return DEFAULT_DIET;
 }
 
@@ -126,7 +127,7 @@ export function useMenuItemGrouping(params) {
         notes:           d.notes || '',
         section_id:      d.section_id || null,
         sort_in_section: (d.sort_in_section == null ? null : d.sort_in_section),
-        is_veg:          d.is_veg,
+        diet:            d.diet || null,
         hasRecipe:       !!d.hasRecipe,
       };
     });

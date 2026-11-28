@@ -275,7 +275,7 @@ function DishLibrary(props) {
         mappedTo: d.mappedTo || '',
         catName: d.catName || '',
         catId: d.catId || '',
-        is_veg: d.is_veg,
+        diet: d.diet || null,
       };
     });
   }, [props.refreshKey, showRetired, localBump, view]);
@@ -953,16 +953,17 @@ function DishLibrary(props) {
     } catch (e) { alert('Restore failed: ' + e.message); }
   }
 
-  // V74/V90: veg/non-veg classification — null (unclassified) → veg → non-veg → back to null.
-  // Same tri-state cycle as DishSectionsEditor's toggle, exposed here too since this
-  // "All dishes" table is where most dishes actually get looked at.
+  // V74/V90/V97: veg/non-veg/egg classification — null (unclassified) → veg
+  // → non-veg → egg → back to null. Same 4-state cycle as DishSectionsEditor's
+  // toggle, exposed here too since this "All dishes" table is where most
+  // dishes actually get looked at.
   async function cycleDishVeg(name, current) {
     if (!isAdmin) return;
-    var next = current == null ? true : (current === true ? false : null);
+    var next = current == null ? 'veg' : current === 'veg' ? 'nonveg' : current === 'nonveg' ? 'egg' : null;
     try {
-      var res = await supabase.from('dishes_master').update({ is_veg: next }).eq('dish_name', name);
+      var res = await supabase.from('dishes_master').update({ diet: next }).eq('dish_name', name);
       if (res.error) throw res.error;
-      upsertDishMaster(name, { is_veg: next });
+      upsertDishMaster(name, { diet: next });
       setLocalBump(function(n) { return n + 1; });
     } catch (e) { alert('Could not update veg/non-veg: ' + e.message); }
   }
@@ -1147,6 +1148,13 @@ function DishLibrary(props) {
                 ? T2('(no SOP set)')
                 : T2('unmapped');
           var mapColor = d.type === 'inv' ? '#0F6E56' : d.type === 'unmapped' ? C.red : C.muted;
+          // dishes_master.diet's check constraint also allows 'jain' (set
+          // only from the separate Sales Catalogue screen, never from this
+          // veg/non-veg/egg cycle) — give it a real color/label instead of
+          // rendering as an invisible dot that reads "Unclassified".
+          var dietColor = d.diet === 'veg' ? C.green : d.diet === 'nonveg' ? C.red : d.diet === 'egg' ? C.egg : (d.diet ? C.muted : null);
+          var dietLabel = d.diet === 'veg' ? T2('Veg') : d.diet === 'nonveg' ? T2('Non-veg') : d.diet === 'egg' ? T2('Egg') : (d.diet || T2('Unclassified'));
+          var dietNext = d.diet === 'veg' ? T2('non-veg') : d.diet === 'nonveg' ? T2('egg') : d.diet ? T2('clear') : T2('veg');
           return (
             <div key={d.dish_name}
               style={{
@@ -1170,14 +1178,13 @@ function DishLibrary(props) {
                 {!d.is_active && <span style={{ marginLeft: 6, fontSize: 10, color: C.muted, fontStyle: 'italic' }}>({T2('retired')})</span>}
               </div>
               <div style={{ color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.hindi || '—'}</div>
-              <div onClick={function(e) { e.stopPropagation(); cycleDishVeg(d.dish_name, d.is_veg); }}
-                title={!isAdmin ? (d.is_veg === true ? T2('Veg') : d.is_veg === false ? T2('Non-veg') : T2('Unclassified'))
-                  : (d.is_veg === true ? T2('Veg — click to mark non-veg') : d.is_veg === false ? T2('Non-veg — click to clear') : T2('Unclassified — click to mark veg'))}
+              <div onClick={function(e) { e.stopPropagation(); cycleDishVeg(d.dish_name, d.diet); }}
+                title={!isAdmin ? dietLabel : (dietLabel + ' — click to mark ' + dietNext)}
                 style={{ cursor: isAdmin ? 'pointer' : 'default' }}>
                 <span style={{
                   display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
-                  background: d.is_veg === true ? '#1D9E75' : d.is_veg === false ? '#D64040' : 'transparent',
-                  border: d.is_veg == null ? '1.5px solid ' + C.border : 'none',
+                  background: dietColor || 'transparent',
+                  border: d.diet == null ? '1.5px solid ' + C.border : 'none',
                 }} />
               </div>
               <div>{typeBadge(d.type)}</div>

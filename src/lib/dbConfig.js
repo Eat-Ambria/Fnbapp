@@ -155,7 +155,7 @@ export function buildDishMasterMap(rows, linkRows) {
         section_id:      primarySectionFor(r.dish_name, sectionsMap),
         section_ids:     sectionIdsFor(r.dish_name, sectionsMap),
         sort_in_section: (r.sort_in_section == null ? null : r.sort_in_section),
-        is_veg:          r.is_veg == null ? null : !!r.is_veg,
+        diet:            r.diet || null,
         no_auto_select:  !!r.no_auto_select,
         alt_group:       r.alt_group || null
       };

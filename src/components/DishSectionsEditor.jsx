@@ -122,6 +122,13 @@ function DishSectionsEditor(props) {
   // Quick-search within the Unassigned bucket — it routinely runs into the
   // hundreds (every dish never filed into a section), too many to scan by eye.
   const [unassignedSearch, setUnassignedSearch] = useState('');
+  // V97 — section-row "⋯" kebab (replaces 5 separate icon buttons) and the
+  // dish-row "+" add-to-section popover (replaces the native "+Also add
+  // to…" <select>). One shared key scheme: 'sec:<id>' for a section's own
+  // kebab, '<sectionId>::<dishName>' for a dish row's add picker.
+  const [menuFor, setMenuFor] = useState(null);
+  const [addPickerFor, setAddPickerFor] = useState(null);
+  const [addPickerSearch, setAddPickerSearch] = useState('');
 
   // ── Data ────────────────────────────────────────────────────────
   // V96: one combined fetch across every dept, no `.eq('dept', ...)` filter.
@@ -140,7 +147,7 @@ function DishSectionsEditor(props) {
     try {
       const results = await Promise.all([
         fetchAllRows(function(){ return supabase.from('dish_catalogue_sections').select('*').order('sort_order', { ascending: true }); }),
-        fetchAllRows(function(){ return supabase.from('dishes_master').select('dish_name, is_active, is_veg, image_url').eq('is_active', true); }),
+        fetchAllRows(function(){ return supabase.from('dishes_master').select('dish_name, is_active, diet, image_url').eq('is_active', true); }),
         fetchAllRows(function(){ return supabase.from('dish_section_links').select('dish_name, section_id, sort_order').order('sort_order', { ascending: true }); })
       ]);
       var fetched = results[0] || [];
@@ -179,7 +186,7 @@ function DishSectionsEditor(props) {
       // for it (results[2]) pushes one more onto `sections` — a dish can
       // legitimately end up in more than one section's bucket below.
       const assignments = {};
-      (results[1] || []).forEach(function(d){ assignments[d.dish_name] = { sections: [], is_veg: d.is_veg == null ? null : !!d.is_veg, image_url: d.image_url || null }; });
+      (results[1] || []).forEach(function(d){ assignments[d.dish_name] = { sections: [], diet: d.diet || null, image_url: d.image_url || null }; });
       (results[2] || []).forEach(function(l){
         if (!assignments[l.dish_name]) return; // an inactive/deleted dish's leftover link row — ignore
         assignments[l.dish_name].sections.push({ section_id: l.section_id, sort_order: l.sort_order || 0 });
@@ -223,11 +230,11 @@ function DishSectionsEditor(props) {
     Object.keys(dishAssignments).forEach(function(dishName){
       const a = dishAssignments[dishName];
       if (!a.sections || a.sections.length === 0) {
-        (map['__unassigned__'] = map['__unassigned__'] || []).push({ name: dishName, sort: 0, is_veg: a.is_veg == null ? null : !!a.is_veg, image_url: a.image_url || null });
+        (map['__unassigned__'] = map['__unassigned__'] || []).push({ name: dishName, sort: 0, diet: a.diet || null, image_url: a.image_url || null });
         return;
       }
       a.sections.forEach(function(m){
-        (map[m.section_id] = map[m.section_id] || []).push({ name: dishName, sort: m.sort_order || 0, is_veg: a.is_veg == null ? null : !!a.is_veg, image_url: a.image_url || null });
+        (map[m.section_id] = map[m.section_id] || []).push({ name: dishName, sort: m.sort_order || 0, diet: a.diet || null, image_url: a.image_url || null });
       });
     });
     Object.keys(map).forEach(function(k){
@@ -237,6 +244,14 @@ function DishSectionsEditor(props) {
   }, [dishAssignments]);
 
   const unassignedList = dishesBySection['__unassigned__'] || [];
+
+  // Other sections a dish belongs to, shown as small removable pills on its
+  // row — needs each section's display name, not just its id.
+  const sectionNameById = useMemo(function(){
+    const m = {};
+    sections.forEach(function(s){ m[s.id] = s.name; });
+    return m;
+  }, [sections]);
 
   // V85 — top-level sections vs. their subsections (one level deep only —
   // a subsection never has its own parent_section_id set to another subsection).
@@ -539,6 +554,51 @@ function DishSectionsEditor(props) {
     } finally { setSaving(false); }
   }
 
+  // V97 — per-section dish drag-reorder, replacing the old ▲▼ buttons.
+  // Scoped to ONE section's own dish_section_links rows, same as moveDish
+  // above — a dish's position in any OTHER section it also belongs to is
+  // never touched. Mirrors onSubDragEnd's shape exactly, just against
+  // dishesBySection[sectionId] instead of subsByParent[parentId].
+  async function onDishDragEnd(sectionId, event) {
+    if (!isAdmin) return;
+    const active = event.active;
+    const over = event.over;
+    if (!over || active.id === over.id) return;
+    const list = dishesBySection[sectionId] || [];
+    const oldIdx = list.findIndex(function(d){ return d.name === active.id; });
+    const newIdx = list.findIndex(function(d){ return d.name === over.id; });
+    if (oldIdx < 0 || newIdx < 0) return;
+
+    const reordered = arrayMove(list, oldIdx, newIdx);
+    const renumbered = reordered.map(function(d, i){ return { name: d.name, sort: (i + 1) * 10 }; });
+    const origSortByName = {};
+    list.forEach(function(d){ origSortByName[d.name] = d.sort; });
+    const changed = renumbered.filter(function(r){ return origSortByName[r.name] !== r.sort; });
+
+    // Optimistic local update.
+    setDishAssignments(function(prev){
+      const next = { ...(prev || {}) };
+      renumbered.forEach(function(r){
+        const a = next[r.name]; if (!a) return;
+        next[r.name] = { ...a, sections: (a.sections || []).map(function(m){ return m.section_id === sectionId ? { ...m, sort_order: r.sort } : m; }) };
+      });
+      return next;
+    });
+    setSaving(true);
+    try {
+      const results = await Promise.all(changed.map(function(r){
+        return supabase.from('dish_section_links').update({ sort_order: r.sort }).eq('dish_name', r.name).eq('section_id', sectionId).select('dish_name');
+      }));
+      const firstError = results.find(function(r){ return r.error; });
+      if (firstError) throw firstError.error;
+    } catch (e) {
+      fail('Could not reorder', e);
+      // Same reasoning as onSectionDragEnd/onSubDragEnd — pull real state
+      // back rather than guessing at a partial-failure outcome.
+      loadData();
+    } finally { setSaving(false); }
+  }
+
   async function onSectionDragEnd(event) {
     if (!isAdmin) return;
     const active = event.active;
@@ -655,7 +715,7 @@ function DishSectionsEditor(props) {
       var nextIds = null;
       setDishAssignments(function(prev){
         const p = prev || {};
-        const a = p[dishName] || { sections: [], is_veg: null, image_url: null };
+        const a = p[dishName] || { sections: [], diet: null, image_url: null };
         const already = (a.sections || []).some(function(m){ return m.section_id === newSectionId; });
         const sections = already ? a.sections : [...(a.sections || []), { section_id: newSectionId, sort_order: newSort }];
         nextIds = sections.map(function(m){ return m.section_id; });
@@ -695,23 +755,24 @@ function DishSectionsEditor(props) {
     finally { setSaving(false); }
   }
 
-  // V74: veg/non-veg classification — null (unclassified) → veg → non-veg → back to null.
-  async function cycleDishVeg(dishName, current) {
+  // V74/V97: veg/non-veg/egg classification — null (unclassified) → veg →
+  // non-veg → egg → back to null.
+  async function cycleDishDiet(dishName, current) {
     if (!isAdmin) return;
-    const next = current == null ? true : (current === true ? false : null);
+    const next = current == null ? 'veg' : current === 'veg' ? 'nonveg' : current === 'nonveg' ? 'egg' : null;
     setSaving(true);
     try {
       const { data, error } = await supabase.from('dishes_master')
-        .update({ is_veg: next })
+        .update({ diet: next })
         .eq('dish_name', dishName)
         .select('dish_name');
       if (error) throw error;
       if (!data || data.length === 0) { fail('Could not update', 'No row was updated — a permissions rule, or the dish is inactive.'); return; }
       setDishAssignments(function(prev){
         const p = prev || {};
-        return { ...p, [dishName]: { ...(p[dishName] || {}), is_veg: next } };
+        return { ...p, [dishName]: { ...(p[dishName] || {}), diet: next } };
       });
-      upsertDishMaster(dishName, { is_veg: next });
+      upsertDishMaster(dishName, { diet: next });
     } catch (e) { fail('Could not update', e); }
     finally { setSaving(false); }
   }
@@ -858,7 +919,7 @@ function DishSectionsEditor(props) {
       setDishAssignments(function(prev){
         const next = { ...(prev || {}) };
         names.forEach(function(name, i){
-          const a = next[name] || { sections: [], is_veg: null, image_url: null };
+          const a = next[name] || { sections: [], diet: null, image_url: null };
           const already = (a.sections || []).some(function(m){ return m.section_id === targetSectionId; });
           const sections = already ? a.sections : [...(a.sections || []), { section_id: targetSectionId, sort_order: baseSort + (i + 1) * 10 }];
           nextIdsByName[name] = sections.map(function(m){ return m.section_id; });
@@ -928,46 +989,113 @@ function DishSectionsEditor(props) {
   }
 
   // ── Render ────────────────────────────────────────────────────────
-  function dishRow(dish, sectionId, idx, total) {
+  function dishRow(dish, sectionId, idx, total, drag) {
     const isUnassigned = sectionId === '__unassigned__';
     const isPicked = bulkSel.has(dish.name);
     // Every OTHER section this dish is already in, besides the one this
     // row is rendered under — used to both hide already-held sections from
-    // the "+ Also add to…" dropdown and to show the "×" remove button only
-    // when it's safe (removing a dish's ONLY remaining section still works,
-    // it just falls to Unassigned, same as before this dish could have more
-    // than one).
+    // the "+" add picker and to show them as removable pills, and to show
+    // the "×" remove button only when it's safe (removing a dish's ONLY
+    // remaining section still works, it just falls to Unassigned).
     const allMemberships = (dishAssignments[dish.name] && dishAssignments[dish.name].sections) || [];
     const currentIds = allMemberships.map(function(m){ return m.section_id; });
+    const otherIds = currentIds.filter(function(id){ return id !== sectionId; });
+    const rowKey = sectionId + '::' + dish.name;
+    const diet = dish.diet || null;
+    // Only ever null/'veg'/'nonveg'/'egg' from this screen's own cycle below
+    // — but dishes_master.diet's check constraint also allows 'jain' (set
+    // only from the separate Sales Catalogue screen, never from here), so
+    // an unrecognized value must still get a real color/label/next-state
+    // rather than silently rendering as an invisible dot and, on click,
+    // discarding it by jumping straight to 'veg'.
+    const dietColor = diet === 'veg' ? C.green : diet === 'nonveg' ? C.red : diet === 'egg' ? C.egg : (diet ? C.muted : null);
+    const dietLabel = diet === 'veg' ? 'Veg' : diet === 'nonveg' ? 'Non-veg' : diet === 'egg' ? 'Egg' : (diet || 'Unclassified');
+    // Matches cycleDishDiet's own real next-state logic below exactly (which
+    // clears ANY value outside veg/nonveg to null) — so the title text never
+    // promises something other than what the click actually does.
+    const dietNext = diet === 'veg' ? 'non-veg' : diet === 'nonveg' ? 'egg' : diet ? 'clear' : 'veg';
     return (
-      <div key={dish.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px 6px 40px', borderTop: idx > 0 ? '0.5px solid ' + C.borderLight : 0, fontSize: 12, background: isPicked ? '#F1F6FC' : 'transparent' }}>
+      <div ref={drag ? drag.ref : undefined} style={{ ...(drag ? drag.style : null), display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px 6px ' + (isUnassigned ? '40px' : '10px'), borderTop: idx > 0 ? '0.5px solid ' + C.borderLight : 0, fontSize: 12, background: isPicked ? '#F1F6FC' : 'transparent' }}>
         {isAdmin && (
           <input type="checkbox" checked={isPicked}
             onChange={function(){ toggleBulk(dish.name); }}
             title="Select for bulk action"
             style={{ margin: 0, cursor: 'pointer', flexShrink: 0 }} />
         )}
-        {isAdmin && !isUnassigned && (
-          <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 1 }}>
-            <button onClick={function(){ moveDish(dish.name, -1, sectionId); }} disabled={saving || idx === 0}
-              style={{ background: 'transparent', border: 0, cursor: idx === 0 ? 'not-allowed' : 'pointer', padding: 0, fontSize: 9, color: C.muted, lineHeight: 1, opacity: idx === 0 ? 0.3 : 1 }}>▲</button>
-            <button onClick={function(){ moveDish(dish.name, 1, sectionId); }} disabled={saving || idx === total - 1}
-              style={{ background: 'transparent', border: 0, cursor: idx === total - 1 ? 'not-allowed' : 'pointer', padding: 0, fontSize: 9, color: C.muted, lineHeight: 1, opacity: idx === total - 1 ? 0.3 : 1 }}>▼</button>
-          </div>
+        {isAdmin && !isUnassigned && drag && (
+          <span {...drag.dragAttrs} {...drag.dragListeners}
+            title="Drag to reorder"
+            style={{ cursor: 'grab', userSelect: 'none', padding: '2px 4px', fontSize: 12, color: C.muted, lineHeight: 1, touchAction: 'none', flexShrink: 0 }}>⠿</span>
         )}
         {isAdmin ? (
-          <button onClick={function(){ cycleDishVeg(dish.name, dish.is_veg); }} disabled={saving}
-            title={dish.is_veg === true ? 'Veg — click to mark non-veg' : dish.is_veg === false ? 'Non-veg — click to clear' : 'Unclassified — click to mark veg'}
+          <button onClick={function(){ cycleDishDiet(dish.name, diet); }} disabled={saving}
+            title={dietLabel + ' — click to mark ' + dietNext}
             style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, padding: 0, cursor: saving ? 'wait' : 'pointer',
-              background: dish.is_veg === true ? '#1D9E75' : dish.is_veg === false ? '#D64040' : 'transparent',
-              border: dish.is_veg == null ? '1.5px solid ' + C.faint : 'none' }} />
+              background: dietColor || 'transparent',
+              border: diet == null ? '1.5px solid ' + C.faint : 'none' }} />
         ) : (
-          dish.is_veg != null && (
-            <span title={dish.is_veg ? 'Veg' : 'Non-veg'}
-              style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: dish.is_veg ? '#1D9E75' : '#D64040' }} />
+          diet != null && (
+            <span title={dietLabel}
+              style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: dietColor }} />
           )
         )}
-        <span style={{ flex: 1, color: C.text }}>{dish.name}</span>
+        <span style={{ flex: 1, minWidth: 60, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dish.name}</span>
+        {otherIds.length > 0 && (
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: 240, justifyContent: 'flex-end' }}>
+            {otherIds.map(function(id){
+              return (
+                <span key={id} title={'Also in "' + (sectionNameById[id] || '') + '"'}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, padding: '1px 6px 1px 8px', borderRadius: 999, background: C.darkCard, color: C.muted, whiteSpace: 'nowrap' }}>
+                  {sectionNameById[id] || '…'}
+                  {isAdmin && (
+                    <button onClick={function(){ removeDishFromSection(dish.name, id); }} disabled={saving}
+                      title={'Remove from "' + (sectionNameById[id] || '') + '"'}
+                      style={{ background: 'transparent', border: 0, cursor: saving ? 'wait' : 'pointer', padding: 0, fontSize: 11, color: C.muted, lineHeight: 1, fontWeight: 700 }}>×</button>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+        )}
+        {isAdmin && (
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <button onClick={function(){ setAddPickerFor(addPickerFor === rowKey ? null : rowKey); setAddPickerSearch(''); }}
+              title={isUnassigned ? 'Assign to a section' : 'Also add to another section'}
+              style={{ background: 'transparent', border: '1px solid ' + C.border, borderRadius: 5, cursor: 'pointer', padding: '1px 7px', fontSize: 12, color: C.muted, lineHeight: 1.5 }}>+</button>
+            {addPickerFor === rowKey && (function(){
+              const opts = flatSectionOptions(currentIds).filter(function(o){
+                const q = addPickerSearch.trim().toLowerCase();
+                return !q || o.label.toLowerCase().indexOf(q) !== -1;
+              });
+              return (
+                <>
+                  <div onClick={function(){ setAddPickerFor(null); }} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
+                  <div onClick={function(e){ e.stopPropagation(); }}
+                    style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 999, background: C.surface, border: '1px solid ' + C.border, borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.18)', width: 220 }}>
+                    <input autoFocus value={addPickerSearch} onChange={function(e){ setAddPickerSearch(e.target.value); }}
+                      placeholder="Search sections…"
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', border: 0, borderBottom: '1px solid ' + C.borderLight, fontSize: 12, outline: 'none', borderRadius: '8px 8px 0 0' }} />
+                    <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                      {opts.map(function(o){
+                        return (
+                          <button key={o.id} onClick={function(){ addDishToSection(dish.name, o.id); setAddPickerFor(null); }}
+                            style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 0, borderTop: '0.5px solid ' + C.borderLight, cursor: 'pointer', padding: '7px 10px', fontSize: 12, color: C.text }}>
+                            {o.label}
+                          </button>
+                        );
+                      })}
+                      {opts.length === 0 && (
+                        <div style={{ padding: '10px', fontSize: 11, color: C.muted, fontStyle: 'italic' }}>
+                          {addPickerSearch.trim() ? 'No match' : 'Already in every section'}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        )}
         {isAdmin && (
           /* Same control as a section's, against dishes_master.image_url.
              Note this one does NOT appear in the printed menu — that has no
@@ -975,7 +1103,7 @@ function DishSectionsEditor(props) {
              Builder. */
           <label title={dish.image_url ? 'Replace dish photo' : 'Upload dish photo'}
             style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              width: 22, height: 22, borderRadius: 4, flexShrink: 0, overflow: 'hidden',
+              width: 20, height: 20, borderRadius: 4, flexShrink: 0, overflow: 'hidden',
               border: '1px solid ' + (dish.image_url ? 'transparent' : C.border),
               cursor: photoBusy === dish.name ? 'wait' : 'pointer',
               opacity: photoBusy === dish.name ? 0.5 : 1 }}>
@@ -983,21 +1111,13 @@ function DishSectionsEditor(props) {
               onChange={function(e){ uploadDishPhoto(dish.name, e.target.files && e.target.files[0]); e.target.value = ''; }} />
             {dish.image_url
               ? <img src={dish.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <span style={{ fontSize: 10, color: C.muted, lineHeight: 1 }}>⬒</span>}
+              : <span style={{ fontSize: 9, color: C.muted, lineHeight: 1 }}>⬒</span>}
           </label>
-        )}
-        {isAdmin && (
-          <select value=""
-            onChange={function(e){ const v = e.target.value; if (v) addDishToSection(dish.name, v); e.target.value = ''; }}
-            style={{ fontSize: 11, padding: '2px 6px', border: '1px solid ' + C.border, borderRadius: 6, background: C.surface, color: C.muted, cursor: 'pointer' }}>
-            <option value="">{isUnassigned ? 'Assign to…' : '+ Also add to…'}</option>
-            {flatSectionOptions(currentIds).map(function(o){ return <option key={o.id} value={o.id}>{o.label}</option>; })}
-          </select>
         )}
         {isAdmin && !isUnassigned && (
           <button onClick={function(){ removeDishFromSection(dish.name, sectionId); }} disabled={saving}
-            title={currentIds.length > 1 ? 'Remove from this section only (it stays in its other sections)' : 'Remove from this section (falls to Unassigned)'}
-            style={{ background: 'transparent', border: 0, cursor: saving ? 'wait' : 'pointer', padding: '0 2px', fontSize: 13, color: C.muted, lineHeight: 1, fontWeight: 700 }}>×</button>
+            title={otherIds.length > 0 ? 'Remove from this section only (it stays in its other sections)' : 'Remove from this section (falls to Unassigned)'}
+            style={{ background: 'transparent', border: 0, cursor: saving ? 'wait' : 'pointer', padding: '0 2px', fontSize: 13, color: C.muted, lineHeight: 1, fontWeight: 700, flexShrink: 0 }}>×</button>
         )}
       </div>
     );
@@ -1052,45 +1172,56 @@ function DishSectionsEditor(props) {
                 </select>
               )}
               <span style={{ fontSize: 11, color: C.muted }}>{dishes.length} dish{dishes.length === 1 ? '' : 'es'}</span>
-              {isAdmin && (
-                <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                  {/* The photograph, as a label wrapping a hidden input: the
-                      thumbnail IS the button, so a section that already has one
-                      shows it rather than just claiming to. */}
-                  <label title={sec.image_url ? 'Replace section photo' : 'Upload section photo'}
-                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      width: 26, height: 26, borderRadius: 5, cursor: photoBusy === sec.id ? 'wait' : 'pointer',
-                      border: '1px solid ' + (sec.image_url ? 'transparent' : C.border),
-                      background: sec.image_url ? 'transparent' : 'transparent',
-                      overflow: 'hidden', flexShrink: 0, opacity: photoBusy === sec.id ? 0.5 : 1 }}>
-                    <input type="file" accept="image/*" style={{ display: 'none' }} disabled={photoBusy === sec.id}
-                      onChange={function(e){ uploadSectionPhoto(sec, e.target.files && e.target.files[0]); e.target.value = ''; }} />
-                    {sec.image_url
-                      ? <img src={sec.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      : <span style={{ fontSize: 12, color: C.muted, lineHeight: 1 }}>⬒</span>}
-                  </label>
-                  {sec.image_url && (
-                    <button onClick={function(){ clearSectionPhoto(sec); }} title="Remove section photo"
-                      style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '2px 4px', fontSize: 11, color: C.muted, borderRadius: 4 }}>⌫</button>
-                  )}
-                  {!isSub && (
-                    <button onClick={function(){ setAddingSubFor(addingSub ? null : sec.id); setNewSubName(''); }} title="Add subsection"
-                      style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '2px 6px', fontSize: 12, color: C.muted, borderRadius: 4 }}>⊞</button>
-                  )}
-                  <button onClick={function(){ setRenamingId(sec.id); setRenameValue(sec.name); }} title="Rename"
-                    style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '2px 6px', fontSize: 12, color: C.muted, borderRadius: 4 }}>✎</button>
-                  <button onClick={function(){ setMergeModal({ sourceId: sec.id, sourceName: sec.name, dishCount: dishes.length }); setMergeTargetId(''); }} title="Merge into another section" disabled={otherCount === 0}
-                    style={{ background: 'transparent', border: 0, cursor: otherCount === 0 ? 'not-allowed' : 'pointer', padding: '2px 6px', fontSize: 12, color: C.muted, opacity: otherCount === 0 ? 0.3 : 1, borderRadius: 4 }}>⇄</button>
-                  <button onClick={function(){ deleteSection(sec); }} title="Delete section"
-                    style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '2px 6px', fontSize: 14, color: C.muted, borderRadius: 4 }}>×</button>
-                </div>
-              )}
+              {isAdmin && (function(){
+                const menuKey = 'sec:' + sec.id;
+                const menuItemStyle = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', boxSizing: 'border-box', textAlign: 'left', background: 'transparent', border: 0, borderTop: '0.5px solid ' + C.borderLight, cursor: 'pointer', padding: '8px 12px', fontSize: 12, color: C.text };
+                return (
+                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                    <button onClick={function(){ setMenuFor(menuFor === menuKey ? null : menuKey); }} title="More actions"
+                      style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '2px 8px', fontSize: 15, color: C.muted, borderRadius: 4, lineHeight: 1 }}>⋯</button>
+                    {menuFor === menuKey && (
+                      <>
+                        <div onClick={function(){ setMenuFor(null); }} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
+                        <div onClick={function(e){ e.stopPropagation(); }}
+                          style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 999, background: C.surface, border: '1px solid ' + C.border, borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.18)', minWidth: 210, overflow: 'hidden' }}>
+                          <label style={{ ...menuItemStyle, borderTop: 0, cursor: photoBusy === sec.id ? 'wait' : 'pointer' }}>
+                            <input type="file" accept="image/*" style={{ display: 'none' }} disabled={photoBusy === sec.id}
+                              onChange={function(e){ uploadSectionPhoto(sec, e.target.files && e.target.files[0]); e.target.value = ''; setMenuFor(null); }} />
+                            📷 {sec.image_url ? 'Replace section photo' : 'Add section photo'}
+                          </label>
+                          {sec.image_url && (
+                            <button onClick={function(){ clearSectionPhoto(sec); setMenuFor(null); }} style={menuItemStyle}>🗑 Remove section photo</button>
+                          )}
+                          {!isSub && (
+                            <button onClick={function(){ setAddingSubFor(sec.id); setNewSubName(''); setMenuFor(null); }} style={menuItemStyle}>⊞ Add subsection</button>
+                          )}
+                          <button onClick={function(){ setRenamingId(sec.id); setRenameValue(sec.name); setMenuFor(null); }} style={menuItemStyle}>✎ Rename</button>
+                          <button onClick={function(){ if (otherCount > 0) { setMergeModal({ sourceId: sec.id, sourceName: sec.name, dishCount: dishes.length }); setMergeTargetId(''); } setMenuFor(null); }}
+                            disabled={otherCount === 0}
+                            style={{ ...menuItemStyle, cursor: otherCount === 0 ? 'not-allowed' : 'pointer', opacity: otherCount === 0 ? 0.4 : 1 }}>⇄ Merge into another section</button>
+                          <button onClick={function(){ setMenuFor(null); deleteSection(sec); }} style={{ ...menuItemStyle, color: C.red }}>🗑 Delete section</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
             </>
           )}
         </div>
         {isExpanded && dishes.length > 0 && (
           <div style={{ borderTop: '0.5px solid ' + C.borderLight }}>
-            {dishes.map(function(d, di){ return dishRow(d, sec.id, di, dishes.length); })}
+            <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={function(event){ onDishDragEnd(sec.id, event); }}>
+              <SortableContext items={dishes.map(function(d){ return d.name; })} strategy={verticalListSortingStrategy}>
+                {dishes.map(function(d, di){
+                  return (
+                    <SortableItem key={d.name} id={d.name}>
+                      {function(drag){ return dishRow(d, sec.id, di, dishes.length, drag); }}
+                    </SortableItem>
+                  );
+                })}
+              </SortableContext>
+            </DndContext>
           </div>
         )}
         {isExpanded && dishes.length === 0 && (

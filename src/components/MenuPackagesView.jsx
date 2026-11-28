@@ -5,7 +5,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { C } from '../data/constants.js';
 import { T } from '../data/translations.js';
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS, MENU_PACKAGE_NO_AUTO_OVERRIDES, MENU_PACKAGE_ALT_GROUP_OVERRIDES, refreshMenuPackages, describeEventMenu } from '../data/menuPackages.js';
-import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster, resolveDishVeg, createCustomDishInLibrary, onDishDataChange } from '../data/recipeData.js';
+import { getCatIdForDish, RECIPE_DB, getSectionsForPackage, setPackageSections, flattenSectionsToDishes, getAllDishes, resolveDishHindi, resolveDishStore, findRecipeForDish, upsertDishHindi, upsertDishStoreMap, upsertDishMaster, resolveDishDiet, createCustomDishInLibrary, onDishDataChange } from '../data/recipeData.js';
 import { buildCsvImportSections, resolveCsvCatalogueSectionId } from '../lib/csvImportSection.js';
 import { TODAY, TOMORROW, safeArr } from '../utils/helpers.js';
 import { syncKitchenMenuMirror } from '../lib/eventItems.js';
@@ -1114,11 +1114,11 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
   var [dishCacheTick, setDishCacheTick] = useState(0);
   async function cycleDishVeg(dishName, current) {
     if (!isAdmin) return;
-    var next = current == null ? true : (current === true ? false : null);
+    var next = current == null ? 'veg' : current === 'veg' ? 'nonveg' : current === 'nonveg' ? 'egg' : null;
     try {
-      var res = await supabase.from('dishes_master').upsert({ dish_name: dishName, is_veg: next }, { onConflict: 'dish_name' });
+      var res = await supabase.from('dishes_master').upsert({ dish_name: dishName, diet: next }, { onConflict: 'dish_name' });
       if (res.error) throw res.error;
-      upsertDishMaster(dishName, { is_veg: next });
+      upsertDishMaster(dishName, { diet: next });
       setDishCacheTick(function(v) { return v + 1; });
     } catch (e) { alert('Update failed: ' + (e.message || e)); }
   }
@@ -2204,7 +2204,13 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                               var badgeBg = type === 'inventory' ? '#E1F5EE' : type === 'sop' ? '#EAF3DE' : '#FCEBEB';
                               var badgeC  = type === 'inventory' ? '#0F6E56' : type === 'sop' ? '#3B6D11' : '#A32D2D';
                               var badgeLbl = type === 'inventory' ? T2('Inventory') : type === 'sop' ? 'SOP' : T2('Unmapped');
-                              var veg = resolveDishVeg(d); // true=veg, false=non-veg, null=unclassified — dishCacheTick forces re-read
+                              var diet = resolveDishDiet(d); // 'veg'|'nonveg'|'egg'|'jain'|null — dishCacheTick forces re-read
+                              // 'jain' (set only from the separate Sales Catalogue screen, never
+                              // from this veg/non-veg/egg cycle) still needs a real color/label
+                              // instead of rendering as an invisible dot.
+                              var dietColor = diet === 'veg' ? C.green : diet === 'nonveg' ? C.red : diet === 'egg' ? C.egg : (diet ? C.muted : null);
+                              var dietLabel = diet === 'veg' ? T2("Veg") : diet === 'nonveg' ? T2("Non-veg") : diet === 'egg' ? T2("Egg") : (diet || T2("Unclassified"));
+                              var dietNext = diet === 'veg' ? T2("non-veg") : diet === 'nonveg' ? T2("egg") : diet ? T2("clear") : T2("veg");
                               var isPicked = !!selectedDishes[d];
                               var isEditingThis = !!editingDish && !editingDish.subId && editingDish.secId === sec.id && editingDish.name === d;
                               return (
@@ -2226,15 +2232,15 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                         style={{ margin: 0, cursor: 'pointer', flexShrink: 0 }} />
                                     )}
                                     {isAdmin ? (
-                                      <button data-nomap onClick={function() { cycleDishVeg(d, veg); }}
-                                        title={veg === true ? T2("Veg — click to mark non-veg") : veg === false ? T2("Non-veg — click to clear") : T2("Unclassified — click to mark veg")}
+                                      <button data-nomap onClick={function() { cycleDishVeg(d, diet); }}
+                                        title={dietLabel + ' — click to mark ' + dietNext}
                                         style={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, padding: 0, cursor: "pointer",
-                                          background: veg === true ? C.green : veg === false ? C.red : "transparent",
-                                          border: veg == null ? "1.5px solid " + C.faint : "none" }} />
+                                          background: dietColor || "transparent",
+                                          border: diet == null ? "1.5px solid " + C.faint : "none" }} />
                                     ) : (
-                                      veg != null && (
-                                        <span title={veg ? T2("Veg") : T2("Non-veg")}
-                                          style={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, background: veg ? C.green : C.red }}></span>
+                                      diet != null && (
+                                        <span title={dietLabel}
+                                          style={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, background: dietColor }}></span>
                                       )
                                     )}
                                     {isEditingThis ? (
@@ -2334,7 +2340,10 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                     var badgeBg = type === 'inventory' ? '#E1F5EE' : type === 'sop' ? '#EAF3DE' : '#FCEBEB';
                                     var badgeC  = type === 'inventory' ? '#0F6E56' : type === 'sop' ? '#3B6D11' : '#A32D2D';
                                     var badgeLbl = type === 'inventory' ? T2('Inventory') : type === 'sop' ? 'SOP' : T2('Unmapped');
-                                    var veg = resolveDishVeg(d);
+                                    var diet = resolveDishDiet(d);
+                                    var dietColor = diet === 'veg' ? C.green : diet === 'nonveg' ? C.red : diet === 'egg' ? C.egg : (diet ? C.muted : null);
+                                    var dietLabel = diet === 'veg' ? T2("Veg") : diet === 'nonveg' ? T2("Non-veg") : diet === 'egg' ? T2("Egg") : (diet || T2("Unclassified"));
+                                    var dietNext = diet === 'veg' ? T2("non-veg") : diet === 'nonveg' ? T2("egg") : diet ? T2("clear") : T2("veg");
                                     var isPicked = !!selectedDishes[d];
                                     var isEditingThis = !!editingDish && editingDish.subId === sub.id && editingDish.secId === sec.id && editingDish.name === d;
                                     return (
@@ -2349,15 +2358,15 @@ function MenuPackagesView({ lang = "en", currentUser = null, events = [], setEve
                                               style={{ margin: 0, cursor: 'pointer', flexShrink: 0 }} />
                                           )}
                                           {isAdmin ? (
-                                            <button data-nomap onClick={function(e) { e.stopPropagation(); cycleDishVeg(d, veg); }}
-                                              title={veg === true ? T2("Veg — click to mark non-veg") : veg === false ? T2("Non-veg — click to clear") : T2("Unclassified — click to mark veg")}
+                                            <button data-nomap onClick={function(e) { e.stopPropagation(); cycleDishVeg(d, diet); }}
+                                              title={dietLabel + ' — click to mark ' + dietNext}
                                               style={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, padding: 0, cursor: "pointer",
-                                                background: veg === true ? C.green : veg === false ? C.red : "transparent",
-                                                border: veg == null ? "1.5px solid " + C.faint : "none" }} />
+                                                background: dietColor || "transparent",
+                                                border: diet == null ? "1.5px solid " + C.faint : "none" }} />
                                           ) : (
-                                            veg != null && (
-                                              <span title={veg ? T2("Veg") : T2("Non-veg")}
-                                                style={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, background: veg ? C.green : C.red }}></span>
+                                            diet != null && (
+                                              <span title={dietLabel}
+                                                style={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, background: dietColor }}></span>
                                             )
                                           )}
                                           {isEditingThis ? (

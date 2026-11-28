@@ -39,8 +39,9 @@ import { buildDishSectionsMap, primarySectionFor, sectionIdsFor } from '../lib/d
    }
 
    // ── Dish master catalogue (canonical list of every dish we serve) ──
-   // Shape: { [dish_name]: { is_active, notes, image_url, is_veg } }
-   // is_veg: true=veg, false=non-veg, null/undefined=unclassified (V74)
+   // Shape: { [dish_name]: { is_active, notes, image_url, diet } }
+   // diet: 'veg' | 'nonveg' | 'egg' | 'jain' | null (unclassified) — same
+   // vocabulary as salesConfig.js's DIET_TAGS. Never guessed from the name.
    let DISH_MASTER = {};
    function setDishMaster(m) { DISH_MASTER = m || {}; }
    function upsertDishMaster(dishName, patch) {
@@ -48,11 +49,10 @@ import { buildDishSectionsMap, primarySectionFor, sectionIdsFor } from '../lib/d
      const prev = DISH_MASTER[dishName] || { is_active: true };
      DISH_MASTER[dishName] = { ...prev, ...(patch || {}) };
    }
-   // V74: null/undefined = unclassified — never guessed from the dish name.
-   function resolveDishVeg(dishName) {
+   function resolveDishDiet(dishName) {
      if (!dishName) return null;
      const row = DISH_MASTER[dishName];
-     return row && row.is_veg != null ? !!row.is_veg : null;
+     return (row && row.diet) || null;
    }
    function deactivateDish(dishName) {
      if (!dishName || !DISH_MASTER[dishName]) return;
@@ -533,7 +533,7 @@ function subscribeDishMetaRealtime(supabase) {
         section_id:      primarySectionFor(r.dish_name, map),
         section_ids:     sectionIdsFor(r.dish_name, map),
         sort_in_section: (r.sort_in_section == null ? null : r.sort_in_section),
-        is_veg:          r.is_veg == null ? null : !!r.is_veg,
+        diet:            r.diet || null,
         no_auto_select:  !!r.no_auto_select,
         alt_group:       r.alt_group || null
       };
@@ -949,7 +949,7 @@ function getAllDishes(opts) {
       section_id:      row.section_id || null,
       section_ids:     row.section_ids || [],
       sort_in_section: (row.sort_in_section == null ? null : row.sort_in_section),
-      is_veg:          row.is_veg == null ? null : !!row.is_veg,
+      diet:            row.diet || null,
       no_auto_select:  !!row.no_auto_select,
       alt_group:       row.alt_group || null
     });
@@ -1135,4 +1135,4 @@ async function createCustomDishInLibrary(supabase, name, catId, catalogueSection
   return result;
 }
 
-export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, parseFruitSpec, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, isDishNoSopMarked, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, subscribeRecipeRealtime, subscribeDishMetaRealtime, onDishDataChange, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishVeg, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary };
+export { guessSectionForDish, getSectionForDish, getCatIdForDish, getExplicitCatIdForDish, getCatForDish, catIdToSection, parseFruitSpec, isFruitSelectionDish, GENERIC_STEPS, RECIPE_INGREDIENTS, RECIPE_DB, DISH_NAME_MAP, DISH_HINDI_MAP, findRecipeForDish, isDishNoSopMarked, getStepsForDish, fmtT, BEV_RE, getFullSteps, getDishImageUrl, hydrateRecipeData, subscribeRecipeRealtime, subscribeDishMetaRealtime, onDishDataChange, normDish, getIngrForDish, getIngrForYield, getBgDemandForDish, getBgDemandForYield, interpolatePax, hasIngredients, dishLabel, resolveDishHindi, setDishHindiMap, upsertDishHindi, upsertDishCat, DISH_MASTER, setDishMaster, upsertDishMaster, resolveDishDiet, deactivateDish, getAllDishes, packagesContainingDish, DISH_STORE_MAP, setDishStoreMap, upsertDishStoreMap, resolveDishStore, getSectionsForPackage, flattenSectionsToDishes, setPackageSections, createCustomDishInLibrary };

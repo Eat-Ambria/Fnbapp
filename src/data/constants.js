@@ -23,6 +23,7 @@ const C = {
   green:"#129A6C",  greenBg:"#E6F7F0",   greenBorder:"#B4E8D3",
   red:"#D9463F",    redBg:"#FDECEB",     redBorder:"#F6C6C3",
   amber:"#C4790C",  amberBg:"#FDF3E2",   amberBorder:"#F5DBA6",
+  egg:"#8A5A2B",    eggBg:"#F3E9DF",     eggBorder:"#DEC6AC",
   blue:"#0EA5E9",   blueBg:"#E4F5FE",    blueBorder:"#B6E5FB",
   purple:"#7C5CE0", purpleBg:"#F0EBFC",  purpleBorder:"#DACFF7",
   teal:"#129A6C",   tealBg:"#E6F7F0",    tealBorder:"#B4E8D3",

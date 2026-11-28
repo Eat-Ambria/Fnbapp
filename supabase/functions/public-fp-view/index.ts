@@ -231,7 +231,7 @@ Deno.serve(async (req) => {
       let dishMaster: any[] = [];
       if (dishNames.size > 0) {
         const dmRes = await sb.from("dishes_master")
-          .select("dish_name, is_active, notes, image_url, section_id, sort_in_section, is_veg, no_auto_select, alt_group")
+          .select("dish_name, is_active, notes, image_url, section_id, sort_in_section, diet, no_auto_select, alt_group")
           .in("dish_name", Array.from(dishNames));
         if (dmRes.error) return json({ ok: false, reason: dmRes.error.message });
         dishMaster = dmRes.data || [];
