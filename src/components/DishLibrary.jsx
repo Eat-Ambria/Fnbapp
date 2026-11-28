@@ -1188,10 +1188,15 @@ function DishLibrary(props) {
 
         {filtered.slice(0, 500).map(function(d) {
           var isSel = !!selected[d.dish_name];
+          // The SOP SECTION this dish is mapped to (its recipe category,
+          // e.g. "Pan Asian Snacks", "Beverages" — the same taxonomy the
+          // Print Menu now groups by) — not the exact recipe name it
+          // happened to resolve against, which used to show here instead
+          // and read as a confusing near-duplicate of the dish's own name.
           var mapText = d.type === 'inv' && d.store
             ? (d.store.ops_item_name + ' · ' + (d.store.qty_per_cover || 1) + ' ' + (d.store.ops_item_unit || '') + '/pax')
             : d.type === 'sop'
-              ? (d.mappedTo || d.catName || 'SOP')
+              ? (d.catName || 'SOP')
               : d.type === 'nosop'
                 ? T2('(no SOP set)')
                 : T2('unmapped');

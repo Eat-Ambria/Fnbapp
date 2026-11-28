@@ -10,13 +10,14 @@
 // empty ruled boxes nobody used.
 // Place in: src/components/FunctionPlanPrintView.jsx
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { C } from '../data/constants.js';
 import { localDateStr } from '../utils/helpers.js';
 import { SALES_DEPTS, DEPT_CONFIGS, isDefaultConfigValue } from '../data/salesConfig.js';
 import { TIME_FIELD_GROUPS, EQUIP_FIELDS, getLmsPlateInfo, calcDriversFoodTotal } from './FunctionPlanTab.jsx';
-import { resolveDishDiet } from '../data/recipeData.js';
+import { resolveDishDiet, getAllDishes } from '../data/recipeData.js';
+import { getAltGroupOverride } from '../data/menuPackages.js';
 
 // Veg first, then egg, then unclassified, then non-veg. resolveDishDiet
 // never guesses from the name, so an unclassified dish sits in its own
@@ -297,6 +298,40 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
     var sid = dishSectionId && (n in dishSectionId) ? dishSectionId[n] : undefined;
     currentDishPlacement[n] = d + '|' + (sid !== undefined ? String(sid) : ((dishSectionName && dishSectionName[n]) || 'Extras'));
   }); });
+  // Dishes sharing a non-empty alt_group tag (baseline dishes_master.alt_group,
+  // overridden per-package via menu_package_alt_group_overrides — same
+  // resolution MenuBuilderPreview.jsx's own altGroupLabel uses) are "either/or"
+  // choices (e.g. Jeera Rice / Steam Rice, Sarson Ka Saag / Aloo Methi) — by
+  // request, these print FIRST under their own "Options" heading instead of
+  // scattered into their normal catalogue section. Scoped to just the dishes
+  // actually on THIS event's FP (currentDishNames), not the whole catalogue —
+  // a tag only one of them carries here isn't a real choice on this sheet,
+  // even if more dishes share it elsewhere in the library.
+  var altGroupOf = (function(){
+    var byGroup = {};
+    var tagByName = {};
+    getAllDishes({ includeInactive: true }).forEach(function(d){
+      if (!currentDishNames.has(d.dish_name)) return;
+      var ov = packageName ? getAltGroupOverride(packageName, d.dish_name) : undefined;
+      var tag = ov === undefined ? (d.alt_group || '') : ov;
+      if (!tag) return;
+      tagByName[d.dish_name] = tag;
+      (byGroup[tag] = byGroup[tag] || []).push(d.dish_name);
+    });
+    var out = {};
+    Object.keys(tagByName).forEach(function(n){
+      if ((byGroup[tagByName[n]] || []).length >= 2) out[n] = tagByName[n];
+    });
+    return out;
+  })();
+  // Reorders an already section-sorted name list so every alt_group dish
+  // comes first (as one contiguous run, so the "Options" heading below
+  // shows exactly once) — relative order within each bucket is untouched.
+  function pullOptionsFirst(names) {
+    var optioned = names.filter(function(n){ return !!altGroupOf[n]; });
+    var rest = names.filter(function(n){ return !altGroupOf[n]; });
+    return optioned.concat(rest);
+  }
   function dishChanged(name) {
     if (!ackSnap) return false;
     if (ackSnapDishes.has(name) !== currentDishNames.has(name)) return true;
@@ -623,7 +658,6 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
             subsequent pages like a normal two-column print layout. */}
         <div className="fp-print-cols" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", border: "2px solid #000", borderTop: "none" }}>
           <div className="fp-print-col-left" style={{ padding: "14px 16px", borderRight: "2px solid #000" }}>
-            <ColTitle>{T2("Customized Menu")} :</ColTitle>
             {packageName ? (
               <div>
                 {Object.keys(menuDiffByDept || {}).length === 0 ? (
@@ -646,13 +680,13 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                             .concat((diff.removed || []).map(function(n){ return { name: n, sign: '-' }; }));
                           var signByName = {};
                           combined.forEach(function(x){ signByName[x.name] = x.sign; });
-                          var sortedNames = sortedByVeg(combined.map(function(x){ return x.name; }), dishSectionOrder);
+                          var sortedNames = pullOptionsFirst(sortedByVeg(combined.map(function(x){ return x.name; }), dishSectionOrder));
                           var lastSec;
                           return (
                             <>
                               <SubHead>{d.name} <span style={{ fontWeight: 400, fontStyle: "italic" }}>({T2(meta.label)})</span></SubHead>
                               {sortedNames.map(function(n){
-                                var sec = (dishSectionName && dishSectionName[n]) || 'Extras';
+                                var sec = altGroupOf[n] ? T2('Options') : ((dishSectionName && dishSectionName[n]) || 'Extras');
                                 var isNewSection = sec !== lastSec;
                                 lastSec = sec;
                                 var sign = signByName[n];
@@ -716,13 +750,13 @@ export function FunctionPlanPrintView({ event, fp, itemsByDept, dishSectionOrder
                 {orderedDepts.map(function(d){
                   var names = (itemsByDept && itemsByDept[d.id]) || [];
                   if (names.length === 0) return null;
-                  var sorted = sortedByVeg(names, dishSectionOrder);
+                  var sorted = pullOptionsFirst(sortedByVeg(names, dishSectionOrder));
                   var lastSection; // undefined sentinel — first item always re-evaluates
                   return (
                     <div key={d.id}>
                       <SubHead>{d.name}</SubHead>
                       {sorted.map(function(n){
-                        var sec = (dishSectionName && dishSectionName[n]) || 'Extras';
+                        var sec = altGroupOf[n] ? T2('Options') : ((dishSectionName && dishSectionName[n]) || 'Extras');
                         var isNewSection = sec !== lastSection;
                         lastSection = sec;
                         return (
