@@ -468,6 +468,26 @@ export function useMenuItemGrouping(params) {
         extras.push(d);
       }
     });
+    // A dish tagged (sectionOverrides, possibly to MULTIPLE sections at
+    // once) additionally shows under every one of those pills too — never
+    // relocated away from its native pooling above, just also placed into
+    // more. Mirrors groupedByPkgSection's own override pass (below), merged
+    // in BEFORE the empty-section skip further down so a section with
+    // nothing native but an override-only dish still gets its own pill
+    // (was previously silently dropped: an override-tagged dish correctly
+    // reached neither its native section's local scope nor the tagged one,
+    // since this function never consulted sectionOverrides at all until now).
+    var byNameVisible = {};
+    visibleDishes.forEach(function(d){ byNameVisible[d.name] = d; });
+    Object.keys(sectionOverrides || {}).forEach(function(name){
+      var d = byNameVisible[name];
+      if (!d) return; // not visible in this dept/filter right now
+      normalizeOverrideIds(sectionOverrides[name]).forEach(function(targetId){
+        if (!validSectionIds[targetId]) return; // not a section of THIS dept — the dept this tag's own section belongs to renders it via its own call to this same hook
+        if (!bySection[targetId]) bySection[targetId] = [];
+        if (bySection[targetId].indexOf(d) === -1) bySection[targetId].push(d);
+      });
+    });
 
     function sortWithin(list) {
       var pinned = [];
@@ -518,7 +538,7 @@ export function useMenuItemGrouping(params) {
       out.push({ id: '__extras__', name: 'Extras', icon: '✨', dishes: sortWithin(extras) });
     }
     return out;
-  }, [activeDept, sections, visibleDishes, templateInfo.dishes, catSubsByParent]);
+  }, [activeDept, sections, visibleDishes, templateInfo.dishes, catSubsByParent, sectionOverrides]);
 
   // Same visibility rules as visibleDishes (diet filter, search, template/
   // selected/add-on visibility) but WITHOUT the per-dept restriction — needed
