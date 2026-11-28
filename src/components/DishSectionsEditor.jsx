@@ -129,6 +129,15 @@ function DishSectionsEditor(props) {
   const [menuFor, setMenuFor] = useState(null);
   const [addPickerFor, setAddPickerFor] = useState(null);
   const [addPickerSearch, setAddPickerSearch] = useState('');
+  // V98 — a section's own "+ Add dish" (brings in a dish that's ALREADY in
+  // some other section, or genuinely new/unassigned, without requiring you
+  // to go find its row wherever it currently lives). Additive, like every
+  // other dish_section_links write in this file — never touches a dish's
+  // other memberships. Auto-opened right after creating a section/subsection
+  // (see addSection) so a brand-new section never sits empty and easy to
+  // mistake for "didn't save".
+  const [dishPickerFor, setDishPickerFor] = useState(null);
+  const [dishPickerSearch, setDishPickerSearch] = useState('');
 
   // ── Data ────────────────────────────────────────────────────────
   // V96: one combined fetch across every dept, no `.eq('dept', ...)` filter.
@@ -253,6 +262,12 @@ function DishSectionsEditor(props) {
     return m;
   }, [sections]);
 
+  // Every active dish, for the per-section "+ Add dish" picker below — it
+  // needs the whole catalogue, not just a section's own current members.
+  const allDishNames = useMemo(function(){
+    return Object.keys(dishAssignments).sort();
+  }, [dishAssignments]);
+
   // V85 — top-level sections vs. their subsections (one level deep only —
   // a subsection never has its own parent_section_id set to another subsection).
   const topSections = useMemo(function(){ return sections.filter(function(s){ return !s.parent_section_id; }); }, [sections]);
@@ -318,10 +333,16 @@ function DishSectionsEditor(props) {
       setSections(function(prev){ return [...(prev || []), data]; });
       if (parentId) { setNewSubName(''); setAddingSubFor(null); }
       else { setNewSectionName(''); setAddingSection(false); }
+      // Expand it and open its dish picker immediately — a freshly created
+      // section with zero dishes is easy to mistake for one that failed to
+      // save, especially sorted to the bottom of a long list (see below).
+      setExpanded(function(prev){ return new Set(prev).add(data.id); });
+      setDishPickerFor(data.id);
+      setDishPickerSearch('');
       // A new section sorts to the very end of a list twenty-five long, so it
       // lands off-screen. Without this the save looked like it did nothing.
       say(parentId ? 'Subsection added' : 'Section added',
-          '"' + nameVal + '" is at the bottom of the list.');
+          '"' + nameVal + '" is at the bottom of the list — add its first dish below.');
     } catch (e) { setAddError('Could not save: ' + e.message); fail('Could not add the section', e); }
     finally { setSaving(false); }
   }
@@ -1200,6 +1221,8 @@ function DishSectionsEditor(props) {
                           {sec.image_url && (
                             <button onClick={function(){ clearSectionPhoto(sec); setMenuFor(null); }} style={menuItemStyle}>🗑 Remove section photo</button>
                           )}
+                          <button onClick={function(){ setExpanded(function(prev){ return new Set(prev).add(sec.id); }); setDishPickerFor(sec.id); setDishPickerSearch(''); setMenuFor(null); }}
+                            style={menuItemStyle}>+ Add dish</button>
                           {!isSub && (
                             <button onClick={function(){ setAddingSubFor(sec.id); setNewSubName(''); setMenuFor(null); }} style={menuItemStyle}>⊞ Add subsection</button>
                           )}
@@ -1234,9 +1257,49 @@ function DishSectionsEditor(props) {
         )}
         {isExpanded && dishes.length === 0 && (
           <div style={{ borderTop: '0.5px solid ' + C.borderLight, padding: '10px 12px', fontSize: 11, color: C.muted, fontStyle: 'italic' }}>
-            No dishes assigned yet. Move dishes here from Unassigned or from other sections using the dropdown.
+            No dishes assigned yet — use "+ Add dish" above (it also finds a dish that's already in another section).
           </div>
         )}
+        {isExpanded && dishPickerFor === sec.id && (function(){
+          const currentIds = (dishesBySection[sec.id] || []).map(function(d){ return d.name; });
+          const q = dishPickerSearch.trim().toLowerCase();
+          const matches = allDishNames.filter(function(name){
+            if (currentIds.indexOf(name) !== -1) return false;
+            return !q || name.toLowerCase().indexOf(q) !== -1;
+          });
+          const shown = q ? matches : matches.slice(0, 50);
+          return (
+            <div style={{ borderTop: '0.5px solid ' + C.borderLight, padding: '10px 12px 12px ' + (isSub ? '0' : '12px') }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                <input autoFocus value={dishPickerSearch} onChange={function(e){ setDishPickerSearch(e.target.value); }}
+                  placeholder={'Search all ' + allDishNames.length + ' dishes…'}
+                  style={{ flex: 1, padding: '6px 10px', border: '1px solid ' + C.border, borderRadius: 6, fontSize: 12.5, boxSizing: 'border-box' }} />
+                <button onClick={function(){ setDishPickerFor(null); }}
+                  style={{ padding: '6px 12px', background: 'transparent', color: C.muted, border: '1px solid ' + C.border, borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>Done</button>
+              </div>
+              <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid ' + C.borderLight, borderRadius: 7 }}>
+                {shown.map(function(name){
+                  const elsewhere = ((dishAssignments[name] && dishAssignments[name].sections) || []).length > 0;
+                  return (
+                    <button key={name} onClick={function(){ addDishToSection(name, sec.id); }}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%', boxSizing: 'border-box', textAlign: 'left', background: 'transparent', border: 0, borderTop: '0.5px solid ' + C.borderLight, cursor: 'pointer', padding: '7px 10px', fontSize: 12.5, color: C.text }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                      {elsewhere && <span style={{ fontSize: 10, color: C.muted, flexShrink: 0 }}>already elsewhere</span>}
+                    </button>
+                  );
+                })}
+                {shown.length === 0 && (
+                  <div style={{ padding: 10, fontSize: 11.5, color: C.muted, fontStyle: 'italic' }}>
+                    {q ? 'No match' : 'Every dish is already in this section'}
+                  </div>
+                )}
+              </div>
+              {!q && matches.length > shown.length && (
+                <div style={{ fontSize: 10.5, color: C.faint, marginTop: 4 }}>+{matches.length - shown.length} more — type to narrow</div>
+              )}
+            </div>
+          );
+        })()}
         {!isSub && isExpanded && subs.length > 0 && (
           <div style={{ borderTop: '0.5px solid ' + C.borderLight, padding: '8px 12px 8px 0', maxHeight: 460, overflowY: 'auto' }}>
             <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={function(event){ onSubDragEnd(sec.id, event); }}>
