@@ -28,6 +28,7 @@ import { supabase } from './supabase.js';
 import { getAllDishes } from '../data/recipeData.js';
 import { MENU_PACKAGE_NO_AUTO_OVERRIDES } from '../data/menuPackages.js';
 import { normalizeOverrideIds } from './catalogueSection.js';
+import { fetchDishNamesInSections } from './dishSections.js';
 
 // Dishes that should never be bulk-added as package "defaults" — the whole
 // point is that picking one is a deliberate choice, not a formality everyone
@@ -281,18 +282,29 @@ export async function saveSectionOverride(config, sectionOverrides, dishName, se
   return next;
 }
 
-// Two-stage error policy preserved exactly: the dishes_master select THROWS
-// on error (nothing persisted yet, safe to propagate); the parentTable
+// Two-stage error policy preserved exactly: the membership lookup THROWS on
+// error (nothing persisted yet, safe to propagate); the parentTable
 // overrides-write is swallowed + console.error'd (matches both files —
 // addCustomDish/addExistingDish call this right after a successful dish
 // insert, and must not report "could not add that dish" just because its
 // section tag failed to save).
+//
+// Queries dish_section_links (the true many-to-many join table), not the
+// legacy dishes_master.section_id scalar this used to read — that column
+// stops being kept in sync the moment a dish's section is touched from the
+// Sections tab's additive model, so a section whose membership changed
+// since would silently resolve to zero dishes here. Reported: a brand-new
+// "Driver Food" section's dish never appeared when brought in from here.
 export async function addSectionFromLibrary(config, sectionOverrides, catSectionId, targetId, subIds, onOptimistic) {
   if (!targetId) return; // nothing to browse under without a target pill
   var ids = [catSectionId].concat(subIds || []);
-  var res = await supabase.from('dishes_master').select('dish_name').in('section_id', ids).eq('is_active', true);
-  if (res.error) throw res.error;
-  var names = (res.data || []).map(function(r){ return r.dish_name; });
+  var names = await fetchDishNamesInSections(ids);
+  if (names.length === 0) return;
+  // dish_section_links has no is_active column of its own — cross-check
+  // against the live active-dish set so a retired dish's leftover
+  // membership row never gets swept in here.
+  var activeNames = new Set((getAllDishes({ includeInactive: false }) || []).map(function(d){ return d.dish_name; }));
+  names = names.filter(function(n){ return activeNames.has(n); });
   if (names.length === 0) return;
   // ADDITIVE, not a clobbering overwrite — a dish swept into this bulk tag
   // can already carry its own multi-section tag (e.g. separately tagged to

@@ -9,14 +9,15 @@
 // mechanism recipeData.test.js already uses); only the whole-CATALOGUE-
 // SECTION-level exclusion needs the mocked `dish_catalogue_sections` query.
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { setDishMaster } from '../data/recipeData.js';
 import { MENU_PACKAGE_NO_AUTO_OVERRIDES } from '../data/menuPackages.js';
 
 var noAutoSectionIds = [];
 var dbCalls = [];
 var freshOverridesRow = {}; // menu_section_overrides the mocked "fresh read" (.select().eq().single()) returns
-var dishesMasterRows = []; // rows addSectionFromLibrary's .select('dish_name').in('section_id', ids).eq(...) returns
+var dishesMasterRows = []; // unused now addSectionFromLibrary reads dish_section_links instead — kept so the old .in().eq() mock shape still resolves if anything else exercises it
+var dishSectionLinksRows = []; // rows addSectionFromLibrary's fetchDishNamesInSections (dish_section_links) returns
 vi.mock('./supabase.js', () => ({
   supabase: {
     from(table) {
@@ -38,6 +39,9 @@ vi.mock('./supabase.js', () => ({
               };
             },
             in() {
+              // fetchDishNamesInSections awaits select().in() directly (no .eq());
+              // table-gated the same way the dish_catalogue_sections then() above is.
+              if (table === 'dish_section_links') return Promise.resolve({ data: dishSectionLinksRows, error: null });
               return {
                 eq() { return Promise.resolve({ data: dishesMasterRows, error: null }); },
               };
@@ -339,17 +343,23 @@ describe('saveSectionOverride', () => {
 });
 
 describe('addSectionFromLibrary', () => {
-  beforeEach(() => { dbCalls = []; freshOverridesRow = {}; dishesMasterRows = []; });
+  // setDishMaster registers names as active (getAllDishes({includeInactive:
+  // false}) is how this function now cross-checks dish_section_links rows,
+  // which carry no is_active column of their own).
+  beforeEach(() => { dbCalls = []; freshOverridesRow = {}; dishesMasterRows = []; dishSectionLinksRows = []; });
+  afterEach(() => { setDishMaster({}); });
 
   it('bulk-tags every dish found under the catalogue section to the target pill', async () => {
-    dishesMasterRows = [{ dish_name: 'Hummus' }, { dish_name: 'Shawarma' }];
+    setDishMaster({ 'Hummus': { is_active: true }, 'Shawarma': { is_active: true } });
+    dishSectionLinksRows = [{ dish_name: 'Hummus' }, { dish_name: 'Shawarma' }];
     const onOptimistic = vi.fn();
     await addSectionFromLibrary(ITEMS_CONFIG, {}, 'cat-lebanese', 'cat-lebanese', [], onOptimistic);
     expect(onOptimistic).toHaveBeenCalledWith({ 'Hummus': 'cat-lebanese', 'Shawarma': 'cat-lebanese' });
   });
 
   it('ADDS to a dish\'s existing multi-section tag instead of clobbering it — caught by adversarial review', async () => {
-    dishesMasterRows = [{ dish_name: 'Steam Rice' }];
+    setDishMaster({ 'Steam Rice': { is_active: true } });
+    dishSectionLinksRows = [{ dish_name: 'Steam Rice' }];
     const onOptimistic = vi.fn();
     const existing = { 'Steam Rice': ['cat-driver-food'] };
     await addSectionFromLibrary(ITEMS_CONFIG, existing, 'cat-rice-factory', 'cat-rice-factory', [], onOptimistic);
@@ -357,15 +367,24 @@ describe('addSectionFromLibrary', () => {
   });
 
   it('does not duplicate a tag the dish already carries', async () => {
-    dishesMasterRows = [{ dish_name: 'Steam Rice' }];
+    setDishMaster({ 'Steam Rice': { is_active: true } });
+    dishSectionLinksRows = [{ dish_name: 'Steam Rice' }];
     const onOptimistic = vi.fn();
     const existing = { 'Steam Rice': 'cat-rice-factory' };
     await addSectionFromLibrary(ITEMS_CONFIG, existing, 'cat-rice-factory', 'cat-rice-factory', [], onOptimistic);
     expect(onOptimistic).toHaveBeenCalledWith({ 'Steam Rice': 'cat-rice-factory' });
   });
 
+  it('a dish whose only catalogue-section link is a retired dish is excluded (dish_section_links has no is_active column of its own)', async () => {
+    setDishMaster({ 'Steam Rice': { is_active: false } });
+    dishSectionLinksRows = [{ dish_name: 'Steam Rice' }];
+    const onOptimistic = vi.fn();
+    await addSectionFromLibrary(ITEMS_CONFIG, {}, 'cat-rice-factory', 'cat-rice-factory', [], onOptimistic);
+    expect(onOptimistic).not.toHaveBeenCalled();
+  });
+
   it('no dishes found under the catalogue section is a no-op (no write at all)', async () => {
-    dishesMasterRows = [];
+    dishSectionLinksRows = [];
     const onOptimistic = vi.fn();
     await addSectionFromLibrary(ITEMS_CONFIG, {}, 'cat-empty', 'cat-empty', [], onOptimistic);
     expect(onOptimistic).not.toHaveBeenCalled();
