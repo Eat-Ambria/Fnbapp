@@ -28,8 +28,9 @@ import { renameOverrideKeys, renameOutsourced, ktKeyFor, classifyKtMove, formatM
 
 // One grid template shared by the "All dishes" table's header and every
 // row, so a column added to one can never silently drift out of alignment
-// with the other: checkbox / dish / hindi / veg / type / maps-to / sections / used-in / kebab.
-const DISH_TABLE_GRID_COLS = '28px 1.6fr 1.1fr 0.55fr 0.7fr 1.4fr 1.2fr 1.2fr 0.4fr';
+// with the other: checkbox / dish (veg dot inline) / hindi / status (type +
+// maps-to merged) / sections / used-in / kebab.
+const DISH_TABLE_GRID_COLS = '28px 1.7fr 1.1fr 1.3fr 1.2fr 1.2fr 36px';
 
 // ═══ V74 duplicate-finder helpers ══════════════════════════════════
 // Normalize: lowercase, strip punctuation, collapse whitespace. Keeps
@@ -195,6 +196,10 @@ function DishLibrary(props) {
 
   // Detail modal — most state now lives in DishMappingModal (V66)
   var [detailFor, setDetailFor] = useState('');
+  // Which row's "⋯" quick-actions menu is open (dish name, or '') — the
+  // table's merged-Status redesign (V98) replaces the old always-empty
+  // trailing column with this.
+  var [rowMenuFor, setRowMenuFor] = useState('');
 
   // Add new dish
   var [creating, setCreating] = useState(false);
@@ -982,6 +987,20 @@ function DishLibrary(props) {
     } catch (e) { alert('Restore failed: ' + e.message); }
   }
 
+  // Single-dish counterpart to bulkDeleteUnused's write, for the row kebab's
+  // quick "Deactivate" — the detail modal has its own, separate deactivate
+  // control; this is a shortcut, not a replacement for it.
+  async function handleDeactivate(name) {
+    if (!isAdmin) return;
+    if (!window.confirm(T2('Retire "') + name + T2('"?'))) return;
+    try {
+      var res = await supabase.from('dishes_master').update({ is_active: false }).eq('dish_name', name);
+      if (res.error) throw res.error;
+      deactivateDish(name);
+      setLocalBump(function(n) { return n + 1; });
+    } catch (e) { alert('Retire failed: ' + e.message); }
+  }
+
   // V74/V90/V97: veg/non-veg/egg classification — null (unclassified) → veg
   // → non-veg → egg → back to null. Same 4-state cycle as DishSectionsEditor's
   // toggle, exposed here too since this "All dishes" table is where most
@@ -1153,9 +1172,7 @@ function DishLibrary(props) {
           </div>
           <div>{T2('Dish')}</div>
           <div>{T2('Hindi')}</div>
-          <div>{T2('Veg')}</div>
-          <div>{T2('Type')}</div>
-          <div>{T2('Maps to')}</div>
+          <div>{T2('Status')}</div>
           <div>{T2('Sections')}</div>
           <div>{T2('Used in')}</div>
           <div></div>
@@ -1204,28 +1221,34 @@ function DishLibrary(props) {
               <div onClick={function(e) { e.stopPropagation(); toggleSelect(d.dish_name); }}>
                 <input type="checkbox" checked={isSel} readOnly style={{ cursor: 'pointer', margin: 0 }} />
               </div>
-              <div style={{ color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {d.dish_name}
-                {!d.is_active && <span style={{ marginLeft: 6, fontSize: 10, color: C.muted, fontStyle: 'italic' }}>({T2('retired')})</span>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                <span onClick={function(e) { e.stopPropagation(); cycleDishVeg(d.dish_name, d.diet); }}
+                  title={!isAdmin ? dietLabel : (dietLabel + ' — click to mark ' + dietNext)}
+                  style={{ cursor: isAdmin ? 'pointer' : 'default', flexShrink: 0, display: 'inline-flex' }}>
+                  <span style={{
+                    display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
+                    background: dietColor || 'transparent',
+                    border: d.diet == null ? '1.5px solid ' + C.border : 'none',
+                  }} />
+                </span>
+                <span style={{ color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {d.dish_name}
+                  {!d.is_active && <span style={{ marginLeft: 6, fontSize: 10, color: C.muted, fontStyle: 'italic' }}>({T2('retired')})</span>}
+                </span>
               </div>
               <div style={{ color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.hindi || '—'}</div>
-              <div onClick={function(e) { e.stopPropagation(); cycleDishVeg(d.dish_name, d.diet); }}
-                title={!isAdmin ? dietLabel : (dietLabel + ' — click to mark ' + dietNext)}
-                style={{ cursor: isAdmin ? 'pointer' : 'default' }}>
-                <span style={{
-                  display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
-                  background: dietColor || 'transparent',
-                  border: d.diet == null ? '1.5px solid ' + C.border : 'none',
-                }} />
+              <div>
+                <div>{typeBadge(d.type)}</div>
+                {(d.type === 'sop' || d.type === 'inv') && (
+                  <div style={{ color: mapColor, fontSize: 10.5, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mapText}</div>
+                )}
               </div>
-              <div>{typeBadge(d.type)}</div>
-              <div style={{ color: mapColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mapText}</div>
               <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
                 {d.sections.length === 0 && <span style={{ fontSize: 10, color: C.faint, fontStyle: 'italic' }}>{T2('unassigned')}</span>}
                 {d.sections.slice(0, 2).map(function(s) {
-                  return <span key={s} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: C.darkCard, color: C.muted, border: '1px solid ' + C.borderLight, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 110, whiteSpace: 'nowrap' }}>{s}</span>;
+                  return <span key={s} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: C.wineBg, color: C.wine, border: '1px solid ' + C.wineBorder, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 110, whiteSpace: 'nowrap' }}>{s}</span>;
                 })}
-                {d.sections.length > 2 && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: C.darkCard, color: C.muted }}>+{d.sections.length - 2}</span>}
+                {d.sections.length > 2 && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: C.wineBg, color: C.wine }}>+{d.sections.length - 2}</span>}
               </div>
               <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
                 {d.packages.length === 0 && <span style={{ fontSize: 10, color: C.faint, fontStyle: 'italic' }}>{T2('unused')}</span>}
@@ -1235,13 +1258,29 @@ function DishLibrary(props) {
                 })}
                 {d.packages.length > 2 && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: C.bg, color: C.muted }}>+{d.packages.length - 2}</span>}
               </div>
-              <div style={{ textAlign: 'right', color: C.muted }}>
-                {!d.is_active && isAdmin && (
-                  <button onClick={function(e) { e.stopPropagation(); handleRestore(d.dish_name); }}
-                    title={T2('Restore')}
-                    style={{ background: 'transparent', border: 'none', color: C.green, cursor: 'pointer', fontSize: 14, padding: 2 }}>↺</button>
-                )}
-              </div>
+              {isAdmin ? (function(){
+                var menuItemStyle = { display: 'block', width: '100%', boxSizing: 'border-box', textAlign: 'left', background: 'transparent', border: 0, borderTop: '0.5px solid ' + C.borderLight, cursor: 'pointer', padding: '8px 12px', fontSize: 12, color: C.text };
+                var open = rowMenuFor === d.dish_name;
+                return (
+                  <div style={{ position: 'relative' }}>
+                    <button onClick={function(e) { e.stopPropagation(); setRowMenuFor(open ? '' : d.dish_name); }}
+                      title={T2('More actions')}
+                      style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '3px 6px', fontSize: 15, color: C.muted, borderRadius: 5, lineHeight: 1 }}>⋯</button>
+                    {open && (
+                      <>
+                        <div onClick={function(e) { e.stopPropagation(); setRowMenuFor(''); }} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
+                        <div onClick={function(e) { e.stopPropagation(); }}
+                          style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 999, background: C.surface, border: '1px solid ' + C.border, borderRadius: 9, boxShadow: '0 6px 20px rgba(0,0,0,0.18)', minWidth: 170, overflow: 'hidden' }}>
+                          <button onClick={function() { setRowMenuFor(''); setDetailFor(d.dish_name); }} style={{ ...menuItemStyle, borderTop: 0 }}>✎ {T2('Edit mapping')}</button>
+                          {d.is_active
+                            ? <button onClick={function() { setRowMenuFor(''); handleDeactivate(d.dish_name); }} style={{ ...menuItemStyle, color: C.red }}>🗑 {T2('Deactivate')}</button>
+                            : <button onClick={function() { setRowMenuFor(''); handleRestore(d.dish_name); }} style={{ ...menuItemStyle, color: C.green }}>↺ {T2('Restore')}</button>}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })() : <div></div>}
             </div>
           );
         })}
