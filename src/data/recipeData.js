@@ -4,7 +4,27 @@
 
 import { MENU_PACKAGES, MENU_PACKAGE_SECTIONS } from './menuPackages.js';
 import INGREDIENT_HINDI from './ingredientHindi.js';
-   
+import { buildDishSectionsMap, primarySectionFor, sectionIdsFor } from '../lib/dishSections.js';
+
+   // Raw dish_section_links rows (the true many-to-many dish<->catalogue-
+   // section join table) -- kept live here, separately from DISH_MASTER
+   // itself, because a single realtime row-change event only tells you
+   // about ONE membership; recomputing a dish's full section_id (tie-break)
+   // / section_ids (full set) needs every row for that dish, not just the
+   // one that changed. Seeded at boot from loadAllConfig's own fetch (see
+   // hydrateRecipeData below), kept current by subscribeDishMetaRealtime's
+   // dish_section_links handler.
+   let DISH_SECTION_LINKS = [];
+   function recomputeDishSectionFields(dishName) {
+     if (!dishName || !DISH_MASTER[dishName]) return;
+     var map = buildDishSectionsMap(DISH_SECTION_LINKS);
+     DISH_MASTER[dishName] = {
+       ...DISH_MASTER[dishName],
+       section_id: primarySectionFor(dishName, map),
+       section_ids: sectionIdsFor(dishName, map),
+     };
+   }
+
    let DISH_HINDI_MAP = {};
    function setDishHindiMap(m) { DISH_HINDI_MAP = m || {}; }
    function upsertDishHindi(dishName, hi) {
@@ -364,6 +384,13 @@ function hydrateRecipeData(cfg) {
   if (cfg.dishMaster) {
     DISH_MASTER = cfg.dishMaster;
   }
+  // Hydrate the raw dish<->section membership rows (section_id/section_ids
+  // on DISH_MASTER entries are already baked in via cfg.dishMaster above --
+  // this is purely so later realtime dish_section_links events can
+  // recompute just the one affected dish without needing a full reload).
+  if (cfg.dishSectionLinks) {
+    DISH_SECTION_LINKS = cfg.dishSectionLinks;
+  }
   // V62: Hydrate dish → Ops store item map
   if (cfg.dishStoreMap) {
     DISH_STORE_MAP = cfg.dishStoreMap;
@@ -492,16 +519,37 @@ function subscribeDishMetaRealtime(supabase) {
       if (p.eventType === 'DELETE') { if (p.old && p.old.dish_name) delete DISH_MASTER[p.old.dish_name]; notifyDishDataChange(); return; }
       const r = p.new;
       if (!r || !r.dish_name) return;
+      // section_id/section_ids deliberately NOT read from r.section_id here
+      // — that raw column stopped being the source of truth once a dish's
+      // sections live in dish_section_links; recompute from the rows this
+      // session already has (DISH_SECTION_LINKS) instead of overwriting them
+      // with the (now-stale) scalar column every time an UNRELATED field on
+      // this dish changes (Hindi name, veg toggle, ...).
+      var map = buildDishSectionsMap(DISH_SECTION_LINKS);
       DISH_MASTER[r.dish_name] = {
         is_active:       r.is_active !== false,
         notes:           r.notes || '',
         image_url:       r.image_url || '',
-        section_id:      r.section_id || null,
+        section_id:      primarySectionFor(r.dish_name, map),
+        section_ids:     sectionIdsFor(r.dish_name, map),
         sort_in_section: (r.sort_in_section == null ? null : r.sort_in_section),
         is_veg:          r.is_veg == null ? null : !!r.is_veg,
         no_auto_select:  !!r.no_auto_select,
         alt_group:       r.alt_group || null
       };
+      notifyDishDataChange();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_section_links' }, (p) => {
+      const row = p.eventType === 'DELETE' ? p.old : p.new;
+      if (!row || !row.dish_name || !row.section_id) return;
+      const matches = function(x){ return x.dish_name === row.dish_name && x.section_id === row.section_id; };
+      if (p.eventType === 'DELETE') {
+        DISH_SECTION_LINKS = DISH_SECTION_LINKS.filter((x) => !matches(x));
+      } else {
+        const idx = DISH_SECTION_LINKS.findIndex(matches);
+        if (idx >= 0) DISH_SECTION_LINKS[idx] = row; else DISH_SECTION_LINKS = [...DISH_SECTION_LINKS, row];
+      }
+      recomputeDishSectionFields(row.dish_name);
       notifyDishDataChange();
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_store_map' }, (p) => {
@@ -894,7 +942,12 @@ function getAllDishes(opts) {
       mappedTo:        mappedResolves ? (recipeNameByLowerTrim.get(String(mappedCI).toLowerCase().trim()) || mappedCI) : null,
       explicitNone:    mapped === '__none__',
       hindi:           DISH_HINDI_MAP[name] || '',
+      // section_id (a deterministic tie-break, NOT a stored primary -- see
+      // dishSections.js) and section_ids (the real, possibly-multi-valued
+      // set) both come straight off the DISH_MASTER entry, which already
+      // has them baked in by buildDishMasterMap/the realtime handlers above.
       section_id:      row.section_id || null,
+      section_ids:     row.section_ids || [],
       sort_in_section: (row.sort_in_section == null ? null : row.sort_in_section),
       is_veg:          row.is_veg == null ? null : !!row.is_veg,
       no_auto_select:  !!row.no_auto_select,
@@ -1043,7 +1096,21 @@ async function createCustomDishInLibrary(supabase, name, catId, catalogueSection
   // the in-memory DISH_MASTER cache below with a section that was never
   // actually persisted.
   if (!res.error && row.section_id) result.sectionIdWritten = row.section_id;
-  upsertDishMaster(name, result.sectionIdWritten ? { is_active: true, section_id: result.sectionIdWritten } : { is_active: true });
+  // Also record this as a real dish_section_links membership — that join
+  // table, not dishes_master.section_id, is the source of truth every OTHER
+  // reader (including this same file's own getAllDishes-equivalent builder
+  // above) now derives section_id/section_ids from. No FK on this table
+  // (same no-explicit-FK convention as the rest of this project's schema),
+  // so a stale id just leaves a harmless orphaned row rather than failing
+  // the whole dish creation — unlike the dishes_master.section_id write
+  // above, this never needs its own retry-without-section_id fallback.
+  if (result.sectionIdWritten) {
+    var linkRes = await supabase.from('dish_section_links').insert({ dish_name: name, section_id: result.sectionIdWritten, sort_order: 0 });
+    if (linkRes.error && linkRes.error.code !== '23505') console.warn('dish_section_links insert warning:', linkRes.error);
+  }
+  upsertDishMaster(name, result.sectionIdWritten
+    ? { is_active: true, section_id: result.sectionIdWritten, section_ids: [result.sectionIdWritten] }
+    : { is_active: true });
   // catId is optional — a dish added with none picked stays genuinely
   // uncategorized (no recipe stub, no silent catch-all bucket). It then shows
   // up in Kitchen Hub Planning's "Unmapped" list, which is the whole point:

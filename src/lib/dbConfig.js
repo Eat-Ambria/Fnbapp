@@ -25,6 +25,7 @@
 
 import { supabase } from './supabase.js';
 import { fetchAllRows } from './db.js';
+import { buildDishSectionsMap, primarySectionFor, sectionIdsFor } from './dishSections.js';
 
 // ── Generic loader with localStorage fallback ──
 async function loadTable(table, fallback = [], transform = null) {
@@ -133,7 +134,17 @@ export function buildDeptConfigs(defsRaw, optionsRaw) {
   return byDept;
 }
 
-export function buildDishMasterMap(rows) {
+// section_id/section_ids are now derived from dish_section_links (a real
+// many-to-many join table), NOT from this row's own section_id column --
+// that column is left in place as a safety net but is no longer the source
+// of truth the moment a dish gets a second section via the Sections tab.
+// section_id here is a deterministic tie-break (primarySectionFor: the
+// EARLIEST-created membership), used only by the handful of things that
+// must still resolve to one section (dept routing, printed Function Plan
+// heading/sort) -- never a stored "primary". section_ids is the real,
+// possibly-multi-valued set, for every catalogue-browsing consumer.
+export function buildDishMasterMap(rows, linkRows) {
+  const sectionsMap = buildDishSectionsMap(linkRows);
   const dishMaster = {};
   (rows || []).forEach(r => {
     if (r && r.dish_name) {
@@ -141,7 +152,8 @@ export function buildDishMasterMap(rows) {
         is_active:       r.is_active !== false,
         notes:           r.notes || '',
         image_url:       r.image_url || '',
-        section_id:      r.section_id || null,
+        section_id:      primarySectionFor(r.dish_name, sectionsMap),
+        section_ids:     sectionIdsFor(r.dish_name, sectionsMap),
         sort_in_section: (r.sort_in_section == null ? null : r.sort_in_section),
         is_veg:          r.is_veg == null ? null : !!r.is_veg,
         no_auto_select:  !!r.no_auto_select,
@@ -264,6 +276,7 @@ export async function loadAllConfig() {
     dishNameMapRaw,
     dishHindiMapRaw,
     dishMasterRaw,
+    dishSectionLinksRaw,
     dishStoreMapRaw,
     teamDeptsRaw,
     teamSectionsRaw,
@@ -288,6 +301,7 @@ export async function loadAllConfig() {
     loadTable('dish_name_map',         [], null),
     loadTable('dish_hindi_map',        [], null),
     loadTable('dishes_master',         [], null),
+    loadTable('dish_section_links',    [], null),
     loadTable('dish_store_map',        [], null),
     loadTable('team_departments',      [], null),
     loadTable('team_sections',         [], null),
@@ -337,7 +351,7 @@ export async function loadAllConfig() {
   (dishHindiMapRaw || []).forEach(r => { if (r.dish_name && r.hi) dishHindiMap[r.dish_name] = r.hi; });
 
   // Build dish master catalogue lookup
-  const dishMaster = buildDishMasterMap(dishMasterRaw);
+  const dishMaster = buildDishMasterMap(dishMasterRaw, dishSectionLinksRaw);
 
   // V62: Build dish → Ops store item lookup
   // V64: added ops_inventory_id (stable prefix key — CS-/FLO-/PRBR-) that survives Ops inventory rebuilds; ops_item_id kept for back-compat
@@ -379,6 +393,11 @@ export async function loadAllConfig() {
     dishNameMap,
     dishHindiMap,
     dishMaster,
+    // Raw rows, not the derived map -- recipeData.js's realtime handler
+    // keeps its OWN running copy of these (seeded from this at boot) so it
+    // can recompute one dish's section_id/section_ids after a single-row
+    // postgres_changes event without needing every row re-sent.
+    dishSectionLinks: dishSectionLinksRaw || [],
     dishStoreMap,
     teamDepts,
     homeVenues,

@@ -133,6 +133,20 @@ describe('createCustomDishInLibrary', () => {
     expect(masterCall.row.section_id).toBe('cat-chaat');
   });
 
+  it('also records the section as a real dish_section_links membership row', async () => {
+    const sb = fakeSupabase({});
+    await createCustomDishInLibrary(sb, '__test_new_dish_link__', '', 'cat-chaat');
+    const linkCall = sb.calls.find(c => c.table === 'dish_section_links');
+    expect(linkCall).toBeTruthy();
+    expect(linkCall.row).toEqual({ dish_name: '__test_new_dish_link__', section_id: 'cat-chaat', sort_order: 0 });
+  });
+
+  it('does not touch dish_section_links when no section was written', async () => {
+    const sb = fakeSupabase({});
+    await createCustomDishInLibrary(sb, '__test_no_section__', '', null);
+    expect(sb.calls.find(c => c.table === 'dish_section_links')).toBeUndefined();
+  });
+
   it('never sets section_id on a dish that already exists locally', async () => {
     setDishMaster({ '__test_existing_dish__': { is_active: true } });
     const sb = fakeSupabase({});

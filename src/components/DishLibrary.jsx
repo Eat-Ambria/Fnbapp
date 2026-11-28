@@ -776,6 +776,33 @@ function DishLibrary(props) {
         upsertDishStoreMap(s, null);
         if (DISH_NAME_MAP[s]) delete DISH_NAME_MAP[s];
       });
+      // 2b. Carry over every source dish's catalogue section membership(s)
+      // to the target name (additive — ignoreDuplicates skips a section the
+      // target is already in), then drop the sources' own rows. Without
+      // this, a merged-away dish's dish_section_links rows would just sit
+      // there pointing at a dish_name that no longer exists in
+      // dishes_master, and the target would silently lose whatever
+      // sections only the SOURCE had been tagged to.
+      var sourceLinks = await withStepTimeout(
+        supabase.from('dish_section_links').select('dish_name, section_id, sort_order').in('dish_name', sources),
+        'load ' + sources.length + ' source dish(es)\' section memberships'
+      );
+      if (sourceLinks.error) throw sourceLinks.error;
+      if (sourceLinks.data && sourceLinks.data.length > 0) {
+        var carryResults = await withStepTimeout(
+          Promise.all(sourceLinks.data.map(function(r) {
+            return supabase.from('dish_section_links')
+              .upsert({ dish_name: target, section_id: r.section_id, sort_order: r.sort_order }, { onConflict: 'dish_name,section_id', ignoreDuplicates: true });
+          })),
+          'carry over section memberships to "' + target + '"'
+        );
+        carryResults.forEach(function(r) { if (r.error) throw r.error; });
+      }
+      var delLinks = await withStepTimeout(
+        supabase.from('dish_section_links').delete().in('dish_name', sources),
+        'delete source dish(es)\' own section memberships'
+      );
+      if (delLinks.error) throw delLinks.error;
     }
     // 3. Rewrite menu_packages
     var renameMap = {};

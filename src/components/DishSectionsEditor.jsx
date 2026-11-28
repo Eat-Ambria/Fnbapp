@@ -15,15 +15,26 @@
 //
 // Features
 // - Add / rename / delete sections
-// - Reorder sections (▲▼ buttons)
-// - Expand section → dish list with reorder + move-to-section dropdown
-// - Merge dialog: move all dishes to target section, then delete source
-// - Unassigned bucket pinned at bottom (any dish with section_id=null)
+// - Reorder sections, and each one's own subsections, by drag
+// - Expand section → dish list, each dish a real MEMBERSHIP row (a dish can
+//   be in zero, one, or many sections at once — see dish_section_links
+//   below), with per-section reorder, a "+ Also add to…" picker (additive —
+//   never replaces a dish's other memberships), and a per-row "×" that
+//   removes just THIS one membership
+// - Merge dialog: every dish with a membership in the source section gets
+//   one ensured in the target (no duplicate if already in both), then the
+//   source section is deleted
+// - Unassigned bucket pinned at bottom (any dish with ZERO memberships)
 // - Realtime subscription — multi-admin edits stay in sync
 //
-// Schema deps (V72 migration): dish_catalogue_sections (id, dept, name,
-// sort_order, sop_category_hint) + dishes_master.section_id +
-// dishes_master.sort_in_section
+// Schema: dish_catalogue_sections (id, dept, name, sort_order,
+// sop_category_hint) + dish_section_links (dish_name, section_id,
+// sort_order — the TRUE many-to-many join table, one row per membership,
+// no "primary" column). dishes_master.section_id/sort_in_section are
+// legacy, left in place as a migration safety net but no longer read or
+// written by this screen — see src/lib/dishSections.js for the shared
+// helpers every other consumer uses to derive a dish's section(s) from
+// dish_section_links instead.
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { C } from '../data/constants.js';
@@ -31,6 +42,7 @@ import { T } from '../data/translations.js';
 import { supabase } from '../lib/supabase.js';
 import { fetchAllRows } from '../lib/db.js';
 import { upsertDishMaster } from '../data/recipeData.js';
+import { buildDishSectionsMap, sectionIdsFor, primarySectionFor } from '../lib/dishSections.js';
 import { formatMergeWarnings } from '../lib/dishRenameOps.js';
 import { SALES_DEPTS, ITEM_HAVING_DEPTS } from '../data/salesConfig.js';
 import { KToast, KModal } from './KitchenUI.jsx';
@@ -104,7 +116,7 @@ function DishSectionsEditor(props) {
   const [mergeTargetId, setMergeTargetId] = useState('');
   // V85 — one level of subsections (e.g. Main Course > Hyderabadi Cuisine).
   // A subsection is just another dish_catalogue_sections row with parent_section_id
-  // set; dishes assign to it the same way as any section (dishes_master.section_id).
+  // set; dishes assign to it the same way as any section (dish_section_links).
   const [addingSubFor, setAddingSubFor] = useState(null); // parent section id, or null
   const [newSubName, setNewSubName] = useState('');
   // Quick-search within the Unassigned bucket — it routinely runs into the
@@ -128,7 +140,8 @@ function DishSectionsEditor(props) {
     try {
       const results = await Promise.all([
         fetchAllRows(function(){ return supabase.from('dish_catalogue_sections').select('*').order('sort_order', { ascending: true }); }),
-        fetchAllRows(function(){ return supabase.from('dishes_master').select('dish_name, section_id, sort_in_section, is_active, is_veg, image_url').eq('is_active', true); })
+        fetchAllRows(function(){ return supabase.from('dishes_master').select('dish_name, is_active, is_veg, image_url').eq('is_active', true); }),
+        fetchAllRows(function(){ return supabase.from('dish_section_links').select('dish_name, section_id, sort_order').order('sort_order', { ascending: true }); })
       ]);
       var fetched = results[0] || [];
       var topFetched = fetched.filter(function(s){ return !s.parent_section_id; });
@@ -162,8 +175,15 @@ function DishSectionsEditor(props) {
         loadedSections = fetched.slice().sort(function(a, b){ return (a.sort_order || 0) - (b.sort_order || 0); });
       }
       setSections(loadedSections);
+      // Each dish starts with zero memberships; every dish_section_links row
+      // for it (results[2]) pushes one more onto `sections` — a dish can
+      // legitimately end up in more than one section's bucket below.
       const assignments = {};
-      (results[1] || []).forEach(function(d){ assignments[d.dish_name] = { section_id: d.section_id, sort_in_section: d.sort_in_section || 0, is_veg: d.is_veg == null ? null : !!d.is_veg, image_url: d.image_url || null }; });
+      (results[1] || []).forEach(function(d){ assignments[d.dish_name] = { sections: [], is_veg: d.is_veg == null ? null : !!d.is_veg, image_url: d.image_url || null }; });
+      (results[2] || []).forEach(function(l){
+        if (!assignments[l.dish_name]) return; // an inactive/deleted dish's leftover link row — ignore
+        assignments[l.dish_name].sections.push({ section_id: l.section_id, sort_order: l.sort_order || 0 });
+      });
       setDishAssignments(assignments);
       setLoadError(null);
     } catch (e) {
@@ -189,19 +209,26 @@ function DishSectionsEditor(props) {
       // would ever appear. Matches the sibling dish_catalogue_sections
       // subscription just above, which already correctly used '*'.
       .on('postgres_changes', { event: '*', schema: 'public', table: 'dishes_master' }, function(){ loadData(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dish_section_links' }, function(){ loadData(); })
       .subscribe();
     return function(){ supabase.removeChannel(ch); };
     /* eslint-disable-next-line */
   }, []);
 
-  // Group dishes by section
+  // Group dishes by section — each dish contributes one row to EVERY
+  // section it's a member of, so a multi-section dish legitimately shows up
+  // in more than one bucket here.
   const dishesBySection = useMemo(function(){
     const map = {};
     Object.keys(dishAssignments).forEach(function(dishName){
       const a = dishAssignments[dishName];
-      const key = a.section_id || '__unassigned__';
-      if (!map[key]) map[key] = [];
-      map[key].push({ name: dishName, sort: a.sort_in_section || 0, is_veg: a.is_veg == null ? null : !!a.is_veg, image_url: a.image_url || null });
+      if (!a.sections || a.sections.length === 0) {
+        (map['__unassigned__'] = map['__unassigned__'] || []).push({ name: dishName, sort: 0, is_veg: a.is_veg == null ? null : !!a.is_veg, image_url: a.image_url || null });
+        return;
+      }
+      a.sections.forEach(function(m){
+        (map[m.section_id] = map[m.section_id] || []).push({ name: dishName, sort: m.sort_order || 0, is_veg: a.is_veg == null ? null : !!a.is_veg, image_url: a.image_url || null });
+      });
     });
     Object.keys(map).forEach(function(k){
       map[k].sort(function(a, b){ return (a.sort - b.sort) || a.name.localeCompare(b.name); });
@@ -230,14 +257,18 @@ function DishSectionsEditor(props) {
     Object.keys(map).forEach(function(k){ map[k].sort(function(a,b){ return (a.sort_order||0) - (b.sort_order||0); }); });
     return map;
   }, [sections]);
-  // Flat, indented option list for "assign/move to" and merge-target pickers —
-  // a subsection is addressed exactly like a section (same table, same id space).
-  function flatSectionOptions(excludeId) {
+  // Flat, indented option list for "add/move to" and merge-target pickers —
+  // a subsection is addressed exactly like a section (same table, same id
+  // space). excludeIds: a single id, an array of ids (a multi-section
+  // dish's own current memberships, so the dropdown never re-offers one
+  // it's already in), or omitted.
+  function flatSectionOptions(excludeIds) {
+    const excludeSet = Array.isArray(excludeIds) ? excludeIds : (excludeIds ? [excludeIds] : []);
     const out = [];
     topSections.forEach(function(s){
-      if (s.id !== excludeId) out.push({ id: s.id, label: s.name });
+      if (excludeSet.indexOf(s.id) === -1) out.push({ id: s.id, label: s.name });
       (subsByParent[s.id] || []).forEach(function(sub){
-        if (sub.id !== excludeId) out.push({ id: sub.id, label: '— ' + sub.name });
+        if (excludeSet.indexOf(sub.id) === -1) out.push({ id: sub.id, label: '— ' + sub.name });
       });
     });
     return out;
@@ -371,10 +402,18 @@ function DishSectionsEditor(props) {
   // delete are worth showing properly, so they go in the dialog's subhead.
   function deleteSection(sec) {
     if (!isAdmin) { fail('Only an admin or head chef can delete sections'); return; }
-    const dishCount = (dishesBySection[sec.id] || []).length;
+    const dishNames = (dishesBySection[sec.id] || []).map(function(d){ return d.name; });
     const subCount = (subsByParent[sec.id] || []).length;
+    // A dish with OTHER memberships keeps showing up elsewhere — only one
+    // with NO other section left behind actually falls to Unassigned.
+    const fallingToUnassigned = dishNames.filter(function(n){
+      return (dishAssignments[n].sections || []).length <= 1;
+    }).length;
     const lines = [];
-    if (dishCount > 0) lines.push('Its ' + dishCount + ' dish' + (dishCount === 1 ? '' : 'es') + ' will move to Unassigned.');
+    if (dishNames.length > 0) {
+      lines.push('Its ' + dishNames.length + ' dish' + (dishNames.length === 1 ? '' : 'es') + ' will lose this section'
+        + (fallingToUnassigned > 0 ? ' (' + fallingToUnassigned + ' with no other section will move to Unassigned).' : ' — any with another section keep it.'));
+    }
     if (subCount > 0) lines.push('Its ' + subCount + ' subsection' + (subCount === 1 ? '' : 's') + ' will become top-level section' + (subCount === 1 ? '' : 's') + '.');
     ask({
       tone: 'danger', icon: 'trash',
@@ -388,37 +427,49 @@ function DishSectionsEditor(props) {
   async function reallyDeleteSection(sec) {
     setSaving(true);
     try {
-      // V73: orphan dishes to Unassigned in DB FIRST, then delete the section.
-      // Without this the dishes keep a section_id pointing at a deleted row and
-      // disappear from both the section (which is gone) and the Unassigned bucket.
-      const assignedNames = Object.keys(dishAssignments).filter(function(n){
-        return dishAssignments[n] && dishAssignments[n].section_id === sec.id;
-      });
-      if (assignedNames.length > 0) {
-        const { error: uErr } = await supabase.from('dishes_master')
-          .update({ section_id: null, sort_in_section: null })
-          .in('dish_name', assignedNames);
-        if (uErr) throw uErr;
+      // Remove just THIS section's membership rows in DB FIRST, then delete
+      // the section — a dish's OTHER memberships are never touched. No FK
+      // on dish_section_links (same no-explicit-FK convention as the rest
+      // of this project's schema), so a row referencing a deleted section
+      // would otherwise sit there forever as a harmless-but-confusing orphan.
+      const affectedNames = (dishesBySection[sec.id] || []).map(function(d){ return d.name; });
+      if (affectedNames.length > 0) {
+        const { error: lErr } = await supabase.from('dish_section_links').delete().eq('section_id', sec.id);
+        if (lErr) throw lErr;
       }
       const { data, error } = await supabase.from('dish_catalogue_sections').delete().eq('id', sec.id).select('id');
       if (error) throw error;
       if (!data || data.length === 0) { fail('Could not delete', 'No row was deleted — this is usually a permissions rule.'); return; }
-      // Optimistic local removal + orphan the dish assignments locally.
-      // ON DELETE SET NULL un-nests any subsections at the DB level — mirror
-      // that locally too, or they'd vanish (still pointing at a deleted parent).
+      // Optimistic local removal + drop just this one membership per
+      // affected dish (keeping any others it has) + un-nest any subsections,
+      // mirroring the DB's ON DELETE SET NULL for parent_section_id.
       setSections(function(prev){
         return (prev || [])
           .filter(function(s){ return s.id !== sec.id; })
           .map(function(s){ return s.parent_section_id === sec.id ? { ...s, parent_section_id: null } : s; });
       });
+      // Captured from INSIDE the updater (not re-derived from the outer
+      // `dishAssignments` closure afterward) so the DISH_MASTER patch below
+      // always reflects this exact write, never a stale snapshot from
+      // before some other still-in-flight action's own update landed.
+      var remainingByName = {};
       setDishAssignments(function(prev){
         const next = { ...(prev || {}) };
-        Object.keys(next).forEach(function(k){
-          if (next[k] && next[k].section_id === sec.id) next[k] = { section_id: null, sort_in_section: null };
+        affectedNames.forEach(function(name){
+          if (!next[name]) return;
+          const kept = (next[name].sections || []).filter(function(m){ return m.section_id !== sec.id; });
+          next[name] = { ...next[name], sections: kept };
+          remainingByName[name] = kept.map(function(m){ return m.section_id; });
         });
         return next;
       });
-      assignedNames.forEach(function(name){ upsertDishMaster(name, { section_id: null, sort_in_section: null }); });
+      // Patch the shared app-wide cache too (recipeData.js's DISH_MASTER) —
+      // same reasoning as every other write in this file: Build Menu/FP
+      // Print read from that cache, not this screen's own React state.
+      affectedNames.forEach(function(name){
+        const remaining = remainingByName[name] || [];
+        upsertDishMaster(name, { section_ids: remaining, section_id: remaining[0] || null });
+      });
       say('Section deleted', '"' + sec.name + '" is gone.');
     } catch (e) { fail('Could not delete', e); }
     finally { setSaving(false); }
@@ -444,6 +495,48 @@ function DishSectionsEditor(props) {
       setSections(function(prev){ return (prev || []).map(function(s){ return s.id === sectionId ? { ...s, sales_dept: val } : s; }); });
     } catch (e) { fail('Could not change the tab', e); }
     finally { setSaving(false); }
+  }
+
+  // Reorders one parent's subsections only (e.g. Beverages' own Refreshing
+  // Station / Fresh Juice / ...) — a separate DndContext per expanded parent,
+  // scoped to just that parent's subs, mirroring onSectionDragEnd below but
+  // against subsByParent[parentId] instead of the top-level list.
+  async function onSubDragEnd(parentId, event) {
+    if (!isAdmin) return;
+    const active = event.active;
+    const over = event.over;
+    if (!over || active.id === over.id) return;
+    const subs = subsByParent[parentId] || [];
+    const oldIdx = subs.findIndex(function(s){ return s.id === active.id; });
+    const newIdx = subs.findIndex(function(s){ return s.id === over.id; });
+    if (oldIdx < 0 || newIdx < 0) return;
+
+    const prevSections = sections;
+    const reordered = arrayMove(subs, oldIdx, newIdx);
+    const renumbered = reordered.map(function(s, i){ return { ...s, sort_order: (i + 1) * 10 }; });
+    const renumberedById = {};
+    renumbered.forEach(function(s){ renumberedById[s.id] = s; });
+    const nextSections = sections.map(function(s){ return renumberedById[s.id] || s; });
+
+    setSections(nextSections);
+    setSaving(true);
+    try {
+      const changed = renumbered.filter(function(s){
+        const orig = prevSections.find(function(p){ return p.id === s.id; });
+        return !orig || orig.sort_order !== s.sort_order;
+      });
+      const results = await Promise.all(changed.map(function(s){
+        return supabase.from('dish_catalogue_sections').update({ sort_order: s.sort_order }).eq('id', s.id).select('id');
+      }));
+      const firstError = results.find(function(r){ return r.error; });
+      if (firstError) throw firstError.error;
+    } catch (e) {
+      fail('Could not reorder', e);
+      // Same reasoning as onSectionDragEnd below — a partial batch failure
+      // can leave the DB only half-renumbered; pull the real state back
+      // rather than guessing from the pre-drag snapshot.
+      loadData();
+    } finally { setSaving(false); }
   }
 
   async function onSectionDragEnd(event) {
@@ -507,9 +600,13 @@ function DishSectionsEditor(props) {
     } finally { setSaving(false); }
   }
 
+  // Scoped to THIS section's own membership row for each dish — reordering
+  // within one section no longer perturbs its position in any OTHER
+  // section it also belongs to (sort_order lives per-membership now, on
+  // dish_section_links, not as one dish-wide dishes_master column).
   async function moveDish(dishName, direction, currentSectionId) {
     if (!isAdmin) return;
-    const list = dishesBySection[currentSectionId || '__unassigned__'] || [];
+    const list = dishesBySection[currentSectionId] || [];
     const idx = list.findIndex(function(d){ return d.name === dishName; });
     const targetIdx = idx + direction;
     if (targetIdx < 0 || targetIdx >= list.length) return;
@@ -519,8 +616,8 @@ function DishSectionsEditor(props) {
     setSaving(true);
     try {
       const [r1, r2] = await Promise.all([
-        supabase.from('dishes_master').update({ sort_in_section: dishSort }).eq('dish_name', dishName).select('dish_name'),
-        supabase.from('dishes_master').update({ sort_in_section: targetSort }).eq('dish_name', target.name).select('dish_name')
+        supabase.from('dish_section_links').update({ sort_order: dishSort }).eq('dish_name', dishName).eq('section_id', currentSectionId).select('dish_name'),
+        supabase.from('dish_section_links').update({ sort_order: targetSort }).eq('dish_name', target.name).eq('section_id', currentSectionId).select('dish_name')
       ]);
       if (r1.error) throw r1.error;
       if (r2.error) throw r2.error;
@@ -528,65 +625,73 @@ function DishSectionsEditor(props) {
       // V73: optimistic local update — don't wait for realtime
       setDishAssignments(function(prev){
         const cur = prev || {};
-        return {
-          ...cur,
-          [dishName]:    { ...(cur[dishName]    || {}), sort_in_section: dishSort   },
-          [target.name]: { ...(cur[target.name] || {}), sort_in_section: targetSort },
-        };
+        function patch(name, sort){
+          const a = cur[name]; if (!a) return a;
+          return { ...a, sections: (a.sections || []).map(function(m){ return m.section_id === currentSectionId ? { ...m, sort_order: sort } : m; }) };
+        }
+        return { ...cur, [dishName]: patch(dishName, dishSort), [target.name]: patch(target.name, targetSort) };
       });
-      // This screen's own state (above) isn't what Build Menu/FP Print read —
-      // they read DISH_MASTER (recipeData.js), hydrated once at boot and
-      // otherwise never refreshed. Without patching it here too, a reorder
-      // made here is invisible everywhere else until a full page reload.
-      upsertDishMaster(dishName,    { sort_in_section: dishSort });
-      upsertDishMaster(target.name, { sort_in_section: targetSort });
     } catch (e) { fail('Could not reorder', e); }
     finally { setSaving(false); }
   }
 
-  async function assignDishToSection(dishName, newSectionId) {
+  // Additive — inserts a NEW membership, never touches the dish's other
+  // sections. ignoreDuplicates makes a re-pick of an already-held section a
+  // harmless no-op instead of a duplicate-key error.
+  async function addDishToSection(dishName, newSectionId) {
     if (!isAdmin) return;
     setSaving(true);
     try {
       const targetList = dishesBySection[newSectionId] || [];
       const maxSort = targetList.reduce(function(m, d){ return Math.max(m, d.sort || 0); }, 0);
       const newSort = maxSort + 10;
-      const { data, error } = await supabase.from('dishes_master')
-        .update({ section_id: newSectionId, sort_in_section: newSort })
-        .eq('dish_name', dishName)
-        .select('dish_name');
+      const { error } = await supabase.from('dish_section_links')
+        .upsert({ dish_name: dishName, section_id: newSectionId, sort_order: newSort }, { onConflict: 'dish_name,section_id', ignoreDuplicates: true });
       if (error) throw error;
-      if (!data || data.length === 0) { fail('Could not move the dish', 'No row was updated — a permissions rule, or the dish is inactive.'); return; }
-      // V73: optimistic local update — realtime on dishes_master may not be enabled
+      // nextIds is captured from INSIDE the updater (not re-derived from the
+      // outer `dishAssignments` closure afterward) so the DISH_MASTER patch
+      // below always reflects this exact write, never a stale snapshot from
+      // before some other still-in-flight action's own update landed.
+      var nextIds = null;
       setDishAssignments(function(prev){
         const p = prev || {};
-        return { ...p, [dishName]: { ...(p[dishName] || {}), section_id: newSectionId, sort_in_section: newSort } };
+        const a = p[dishName] || { sections: [], is_veg: null, image_url: null };
+        const already = (a.sections || []).some(function(m){ return m.section_id === newSectionId; });
+        const sections = already ? a.sections : [...(a.sections || []), { section_id: newSectionId, sort_order: newSort }];
+        nextIds = sections.map(function(m){ return m.section_id; });
+        if (already) return p;
+        return { ...p, [dishName]: { ...a, sections: sections } };
       });
       // See moveDish's comment above — patch the shared cache too, or Build
-      // Menu/FP Print keep showing this dish under its OLD section (or
-      // Extras) until a full reload.
-      upsertDishMaster(dishName, { section_id: newSectionId, sort_in_section: newSort });
-    } catch (e) { fail('Could not move the dish', e); }
+      // Menu/FP Print keep showing this dish under its OLD section(s) only
+      // until a full reload.
+      upsertDishMaster(dishName, { section_ids: nextIds, section_id: nextIds[0] || null });
+    } catch (e) { fail('Could not add the dish to that section', e); }
     finally { setSaving(false); }
   }
 
-  async function unassignDish(dishName) {
+  // Removes just THIS one membership — any other section the dish belongs
+  // to is untouched. Replaces the old scalar "Unassign" (there was only
+  // ever one section to clear); the per-row "×" button below is what calls
+  // this now, not a dropdown option.
+  async function removeDishFromSection(dishName, sectionId) {
     if (!isAdmin) return;
     setSaving(true);
     try {
-      const { data, error } = await supabase.from('dishes_master')
-        .update({ section_id: null, sort_in_section: null })
-        .eq('dish_name', dishName)
-        .select('dish_name');
+      const { data, error } = await supabase.from('dish_section_links').delete().eq('dish_name', dishName).eq('section_id', sectionId).select('dish_name');
       if (error) throw error;
-      if (!data || data.length === 0) { fail('Could not unassign', 'No row was updated — a permissions rule, or the dish is inactive.'); return; }
-      // V73: optimistic local update
+      if (!data || data.length === 0) { fail('Could not remove the dish', 'No row was removed — this is usually a permissions rule.'); return; }
+      // remainingIds captured from INSIDE the updater — see addDishToSection's comment above.
+      var remainingIds = null;
       setDishAssignments(function(prev){
         const p = prev || {};
-        return { ...p, [dishName]: { ...(p[dishName] || {}), section_id: null, sort_in_section: null } };
+        const a = p[dishName]; if (!a) return p;
+        const kept = (a.sections || []).filter(function(m){ return m.section_id !== sectionId; });
+        remainingIds = kept.map(function(m){ return m.section_id; });
+        return { ...p, [dishName]: { ...a, sections: kept } };
       });
-      upsertDishMaster(dishName, { section_id: null, sort_in_section: null });
-    } catch (e) { fail('Could not unassign', e); }
+      upsertDishMaster(dishName, { section_ids: remainingIds || [], section_id: (remainingIds && remainingIds[0]) || null });
+    } catch (e) { fail('Could not remove the dish from that section', e); }
     finally { setSaving(false); }
   }
 
@@ -703,77 +808,115 @@ function DishSectionsEditor(props) {
     }
   }
 
-  // targetSectionId: a section id or '__unassign__'
+  // targetSectionId: a real section id ("+ Add to"), or '__unassign__'
+  // ("remove from every section"). bulkSel is keyed by bare dish name
+  // (shared with the dish-rename/merge feature below, which needs plain
+  // dish identity, not a per-section pairing — see toggleBulk above), so a
+  // bulk action here is necessarily dish-wide: "Add to" is additive (never
+  // touches a dish's existing sections, same as the per-row "+ Also add
+  // to…" action, just batched); "remove from every section" clears ALL of
+  // a selected dish's memberships, matching this toolbar's original
+  // "— Unassign" wording as literally as a now-possibly-multi-section dish
+  // allows (the per-row "×" button is what removes just ONE membership).
   async function bulkMoveTo(targetSectionId) {
     if (!isAdmin || bulkSel.size === 0) return;
     const isUnassign = targetSectionId === '__unassign__';
     const names = Array.from(bulkSel);
     setSaving(true);
     try {
-      let baseSort = 0;
-      if (!isUnassign) {
-        const targetList = dishesBySection[targetSectionId] || [];
-        baseSort = targetList.reduce(function(m, d){ return Math.max(m, d.sort || 0); }, 0);
+      if (isUnassign) {
+        const results = await Promise.all(names.map(function(name){
+          return supabase.from('dish_section_links').delete().eq('dish_name', name).select('dish_name').then(function(res){ return { name: name, res: res }; });
+        }));
+        results.forEach(function(r){ if (r.res.error) throw r.res.error; });
+        setDishAssignments(function(prev){
+          const next = { ...(prev || {}) };
+          names.forEach(function(name){ if (next[name]) next[name] = { ...next[name], sections: [] }; });
+          return next;
+        });
+        names.forEach(function(name){ upsertDishMaster(name, { section_ids: [], section_id: null }); });
+        clearBulk();
+        say('Removed ' + names.length + ' dish' + (names.length === 1 ? '' : 'es') + ' from every section');
+        return;
       }
-      // Fire all row updates in parallel instead of one round trip per dish —
-      // sequential awaits here made a 10-dish bulk move take 10x one request's latency.
+      const targetList = dishesBySection[targetSectionId] || [];
+      const baseSort = targetList.reduce(function(m, d){ return Math.max(m, d.sort || 0); }, 0);
+      // Fire all row writes in parallel instead of one round trip per dish —
+      // sequential awaits here made a 10-dish bulk add take 10x one
+      // request's latency. ignoreDuplicates makes a dish already in the
+      // target section a harmless no-op instead of a duplicate-key error.
       const results = await Promise.all(names.map(function(name, i){
-        const newSectionId = isUnassign ? null : targetSectionId;
-        const newSort = isUnassign ? null : baseSort + (i + 1) * 10;
-        return supabase.from('dishes_master')
-          .update({ section_id: newSectionId, sort_in_section: newSort })
-          .eq('dish_name', name)
-          .select('dish_name')
-          .then(function(res){ return { name: name, newSectionId: newSectionId, newSort: newSort, res: res }; });
+        return supabase.from('dish_section_links')
+          .upsert({ dish_name: name, section_id: targetSectionId, sort_order: baseSort + (i + 1) * 10 }, { onConflict: 'dish_name,section_id', ignoreDuplicates: true })
+          .then(function(res){ return { name: name, res: res }; });
       }));
-      const updates = {};
-      let ok = 0;
-      results.forEach(function(r){
-        if (r.res.error) throw r.res.error;
-        if (r.res.data && r.res.data.length > 0) {
-          updates[r.name] = { section_id: r.newSectionId, sort_in_section: r.newSort };
-          ok += 1;
-        }
+      results.forEach(function(r){ if (r.res.error) throw r.res.error; });
+      // nextIdsByName captured from INSIDE the updater — see
+      // addDishToSection's comment for why (avoids a stale-closure race
+      // against any other still-in-flight action on the same dish).
+      var nextIdsByName = {};
+      setDishAssignments(function(prev){
+        const next = { ...(prev || {}) };
+        names.forEach(function(name, i){
+          const a = next[name] || { sections: [], is_veg: null, image_url: null };
+          const already = (a.sections || []).some(function(m){ return m.section_id === targetSectionId; });
+          const sections = already ? a.sections : [...(a.sections || []), { section_id: targetSectionId, sort_order: baseSort + (i + 1) * 10 }];
+          nextIdsByName[name] = sections.map(function(m){ return m.section_id; });
+          next[name] = { ...a, sections: sections };
+        });
+        return next;
       });
-      // Optimistic local update
-      setDishAssignments(function(prev){ return { ...(prev || {}), ...updates }; });
-      Object.keys(updates).forEach(function(name){ upsertDishMaster(name, updates[name]); });
+      names.forEach(function(name){
+        const nextIds = nextIdsByName[name] || [];
+        upsertDishMaster(name, { section_ids: nextIds, section_id: nextIds[0] || null });
+      });
       clearBulk();
-      // A partial move is a warning, not a failure — some rows did land.
-      if (ok < names.length) setToast({ tone: 'warn', title: 'Moved ' + ok + ' of ' + names.length + ' dishes',
-        body: 'The rest were blocked, which is usually a permissions rule.' });
-      else say('Moved ' + ok + ' dish' + (ok === 1 ? '' : 'es'));
-    } catch (e) { fail('Could not move those dishes', e); }
+      say('Added ' + names.length + ' dish' + (names.length === 1 ? '' : 'es') + ' to that section');
+    } catch (e) { fail('Could not update those dishes', e); }
     finally { setSaving(false); }
   }
 
   async function doMerge() {
     if (!isAdmin || !mergeModal || !mergeTargetId) return;
     const targetList = dishesBySection[mergeTargetId] || [];
-    const maxSort = targetList.reduce(function(m, d){ return Math.max(m, d.sort || 0); }, 0);
+    const baseSort = targetList.reduce(function(m, d){ return Math.max(m, d.sort || 0); }, 0);
     const sourceDishes = dishesBySection[mergeModal.sourceId] || [];
     setSaving(true);
     try {
-      // Parallel per-dish updates — same fix as bulkMoveTo, a section merge with
-      // dozens of dishes was doing one sequential round trip per dish.
+      // Ensure every source dish has a target membership FIRST (upsert +
+      // ignoreDuplicates — a harmless no-op for a dish already in both
+      // source AND target), THEN bulk-delete every membership in the
+      // source section — in that order, so a dish is never briefly in
+      // neither. Same parallel-writes fix as bulkMoveTo above.
       const results = await Promise.all(sourceDishes.map(function(d, i){
-        const newSort = maxSort + (i + 1) * 10;
-        return supabase.from('dishes_master')
-          .update({ section_id: mergeTargetId, sort_in_section: newSort })
-          .eq('dish_name', d.name)
-          .select('dish_name')
-          .then(function(res){ return { name: d.name, newSort: newSort, res: res }; });
+        return supabase.from('dish_section_links')
+          .upsert({ dish_name: d.name, section_id: mergeTargetId, sort_order: baseSort + (i + 1) * 10 }, { onConflict: 'dish_name,section_id', ignoreDuplicates: true })
+          .then(function(res){ return { name: d.name, res: res }; });
       }));
-      const movedUpdates = {};
-      results.forEach(function(r){
-        if (r.res.error) throw r.res.error;
-        if (r.res.data && r.res.data.length > 0) movedUpdates[r.name] = { section_id: mergeTargetId, sort_in_section: r.newSort };
-      });
+      results.forEach(function(r){ if (r.res.error) throw r.res.error; });
+      const { error: delLinksErr } = await supabase.from('dish_section_links').delete().eq('section_id', mergeModal.sourceId);
+      if (delLinksErr) throw delLinksErr;
       const { error: delErr } = await supabase.from('dish_catalogue_sections').delete().eq('id', mergeModal.sourceId);
       if (delErr) throw delErr;
-      // V73: optimistic local update
-      setDishAssignments(function(prev){ return { ...(prev || {}), ...movedUpdates }; });
-      Object.keys(movedUpdates).forEach(function(name){ upsertDishMaster(name, movedUpdates[name]); });
+      // V73: optimistic local update. nextIdsByName captured from INSIDE
+      // the updater — see addDishToSection's comment for why.
+      var nextIdsByName = {};
+      setDishAssignments(function(prev){
+        const next = { ...(prev || {}) };
+        sourceDishes.forEach(function(d, i){
+          const a = next[d.name]; if (!a) return;
+          const withoutSource = (a.sections || []).filter(function(m){ return m.section_id !== mergeModal.sourceId; });
+          const alreadyInTarget = withoutSource.some(function(m){ return m.section_id === mergeTargetId; });
+          const sections = alreadyInTarget ? withoutSource : [...withoutSource, { section_id: mergeTargetId, sort_order: baseSort + (i + 1) * 10 }];
+          nextIdsByName[d.name] = sections.map(function(m){ return m.section_id; });
+          next[d.name] = { ...a, sections: sections };
+        });
+        return next;
+      });
+      sourceDishes.forEach(function(d){
+        const nextIds = nextIdsByName[d.name] || [];
+        upsertDishMaster(d.name, { section_ids: nextIds, section_id: nextIds[0] || null });
+      });
       setSections(function(prev){ return (prev || []).filter(function(s){ return s.id !== mergeModal.sourceId; }); });
       setMergeModal(null); setMergeTargetId('');
     } catch (e) { fail('Could not merge', e); }
@@ -788,12 +931,20 @@ function DishSectionsEditor(props) {
   function dishRow(dish, sectionId, idx, total) {
     const isUnassigned = sectionId === '__unassigned__';
     const isPicked = bulkSel.has(dish.name);
+    // Every OTHER section this dish is already in, besides the one this
+    // row is rendered under — used to both hide already-held sections from
+    // the "+ Also add to…" dropdown and to show the "×" remove button only
+    // when it's safe (removing a dish's ONLY remaining section still works,
+    // it just falls to Unassigned, same as before this dish could have more
+    // than one).
+    const allMemberships = (dishAssignments[dish.name] && dishAssignments[dish.name].sections) || [];
+    const currentIds = allMemberships.map(function(m){ return m.section_id; });
     return (
       <div key={dish.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px 6px 40px', borderTop: idx > 0 ? '0.5px solid ' + C.borderLight : 0, fontSize: 12, background: isPicked ? '#F1F6FC' : 'transparent' }}>
         {isAdmin && (
           <input type="checkbox" checked={isPicked}
             onChange={function(){ toggleBulk(dish.name); }}
-            title="Select for bulk move"
+            title="Select for bulk action"
             style={{ margin: 0, cursor: 'pointer', flexShrink: 0 }} />
         )}
         {isAdmin && !isUnassigned && (
@@ -837,12 +988,16 @@ function DishSectionsEditor(props) {
         )}
         {isAdmin && (
           <select value=""
-            onChange={function(e){ const v = e.target.value; if (v === '__unassign__') unassignDish(dish.name); else if (v) assignDishToSection(dish.name, v); e.target.value = ''; }}
+            onChange={function(e){ const v = e.target.value; if (v) addDishToSection(dish.name, v); e.target.value = ''; }}
             style={{ fontSize: 11, padding: '2px 6px', border: '1px solid ' + C.border, borderRadius: 6, background: C.surface, color: C.muted, cursor: 'pointer' }}>
-            <option value="">{isUnassigned ? 'Assign to…' : 'Move to…'}</option>
-            {flatSectionOptions(sectionId).map(function(o){ return <option key={o.id} value={o.id}>{o.label}</option>; })}
-            {!isUnassigned && <option value="__unassign__">— Unassign</option>}
+            <option value="">{isUnassigned ? 'Assign to…' : '+ Also add to…'}</option>
+            {flatSectionOptions(currentIds).map(function(o){ return <option key={o.id} value={o.id}>{o.label}</option>; })}
           </select>
+        )}
+        {isAdmin && !isUnassigned && (
+          <button onClick={function(){ removeDishFromSection(dish.name, sectionId); }} disabled={saving}
+            title={currentIds.length > 1 ? 'Remove from this section only (it stays in its other sections)' : 'Remove from this section (falls to Unassigned)'}
+            style={{ background: 'transparent', border: 0, cursor: saving ? 'wait' : 'pointer', padding: '0 2px', fontSize: 13, color: C.muted, lineHeight: 1, fontWeight: 700 }}>×</button>
         )}
       </div>
     );
@@ -945,7 +1100,17 @@ function DishSectionsEditor(props) {
         )}
         {!isSub && subs.length > 0 && (
           <div style={{ borderTop: '0.5px solid ' + C.borderLight, padding: '8px 12px 8px 0' }}>
-            {subs.map(function(sub){ return sectionRow(sub, null, true); })}
+            <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={function(event){ onSubDragEnd(sec.id, event); }}>
+              <SortableContext items={subs.map(function(s){ return s.id; })} strategy={verticalListSortingStrategy}>
+                {subs.map(function(sub){
+                  return (
+                    <SortableItem key={sub.id} id={sub.id}>
+                      {function(drag){ return sectionRow(sub, drag, true); }}
+                    </SortableItem>
+                  );
+                })}
+              </SortableContext>
+            </DndContext>
           </div>
         )}
         {!isSub && addingSub && (
@@ -1026,15 +1191,16 @@ function DishSectionsEditor(props) {
       {isAdmin && bulkSel.size > 0 && (
         <div style={{ position: 'sticky', top: 0, zIndex: 20, marginBottom: 10, padding: '10px 14px', background: '#EAF2FA', border: '1.5px solid #7FA9D4', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: '#1E5A8F' }}>{bulkSel.size} selected</span>
-          <span style={{ fontSize: 12, color: C.muted }}>· Move to:</span>
+          <span style={{ fontSize: 12, color: C.muted }}>· Add to:</span>
           <select value=""
             onChange={function(e){ const v = e.target.value; if (v) bulkMoveTo(v); e.target.value = ''; }}
+            title="Additive — adds every selected dish to the picked section without touching any section it's already in"
             style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #7FA9D4', background: C.surface, fontSize: 12, color: C.text, cursor: 'pointer', fontWeight: 600 }}>
             <option value="">— pick section —</option>
             {flatSectionOptions().map(function(o){
               return <option key={o.id} value={o.id}>{o.label}</option>;
             })}
-            <option value="__unassign__">— Unassign —</option>
+            <option value="__unassign__">— Remove from every section —</option>
           </select>
           {props.onMergeDishes && (
             <button onClick={openDishMerge}
