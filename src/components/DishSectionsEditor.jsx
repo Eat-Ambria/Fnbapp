@@ -1014,8 +1014,9 @@ function DishSectionsEditor(props) {
     // clears ANY value outside veg/nonveg to null) — so the title text never
     // promises something other than what the click actually does.
     const dietNext = diet === 'veg' ? 'non-veg' : diet === 'nonveg' ? 'egg' : diet ? 'clear' : 'veg';
+    const dishMenuKey = 'dish:' + rowKey;
     return (
-      <div ref={drag ? drag.ref : undefined} style={{ ...(drag ? drag.style : null), display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px 6px ' + (isUnassigned ? '40px' : '10px'), borderTop: idx > 0 ? '0.5px solid ' + C.borderLight : 0, fontSize: 12, background: isPicked ? '#F1F6FC' : 'transparent' }}>
+      <div ref={drag ? drag.ref : undefined} style={{ ...(drag ? drag.style : null), display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px 9px ' + (isUnassigned ? '44px' : '12px'), borderTop: idx > 0 ? '0.5px solid ' + C.borderLight : 0, fontSize: 13, background: isPicked ? '#F1F6FC' : 'transparent' }}>
         {isAdmin && (
           <input type="checkbox" checked={isPicked}
             onChange={function(){ toggleBulk(dish.name); }}
@@ -1025,32 +1026,32 @@ function DishSectionsEditor(props) {
         {isAdmin && !isUnassigned && drag && (
           <span {...drag.dragAttrs} {...drag.dragListeners}
             title="Drag to reorder"
-            style={{ cursor: 'grab', userSelect: 'none', padding: '2px 4px', fontSize: 12, color: C.muted, lineHeight: 1, touchAction: 'none', flexShrink: 0 }}>⠿</span>
+            style={{ cursor: 'grab', userSelect: 'none', padding: '2px 5px', fontSize: 14, color: C.muted, lineHeight: 1, touchAction: 'none', flexShrink: 0 }}>⠿</span>
         )}
         {isAdmin ? (
           <button onClick={function(){ cycleDishDiet(dish.name, diet); }} disabled={saving}
             title={dietLabel + ' — click to mark ' + dietNext}
-            style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, padding: 0, cursor: saving ? 'wait' : 'pointer',
+            style={{ width: 12, height: 12, borderRadius: '50%', flexShrink: 0, padding: 0, cursor: saving ? 'wait' : 'pointer',
               background: dietColor || 'transparent',
               border: diet == null ? '1.5px solid ' + C.faint : 'none' }} />
         ) : (
           diet != null && (
             <span title={dietLabel}
-              style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: dietColor }} />
+              style={{ width: 12, height: 12, borderRadius: '50%', flexShrink: 0, background: dietColor }} />
           )
         )}
         <span style={{ flex: 1, minWidth: 60, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dish.name}</span>
         {otherIds.length > 0 && (
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: 240, justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', maxWidth: 260, justifyContent: 'flex-end' }}>
             {otherIds.map(function(id){
               return (
                 <span key={id} title={'Also in "' + (sectionNameById[id] || '') + '"'}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, padding: '1px 6px 1px 8px', borderRadius: 999, background: C.darkCard, color: C.muted, whiteSpace: 'nowrap' }}>
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, padding: '2px 7px 2px 9px', borderRadius: 999, background: C.darkCard, color: C.muted, whiteSpace: 'nowrap' }}>
                   {sectionNameById[id] || '…'}
                   {isAdmin && (
                     <button onClick={function(){ removeDishFromSection(dish.name, id); }} disabled={saving}
                       title={'Remove from "' + (sectionNameById[id] || '') + '"'}
-                      style={{ background: 'transparent', border: 0, cursor: saving ? 'wait' : 'pointer', padding: 0, fontSize: 11, color: C.muted, lineHeight: 1, fontWeight: 700 }}>×</button>
+                      style={{ background: 'transparent', border: 0, cursor: saving ? 'wait' : 'pointer', padding: 0, fontSize: 12, color: C.muted, lineHeight: 1, fontWeight: 700 }}>×</button>
                   )}
                 </span>
               );
@@ -1061,7 +1062,7 @@ function DishSectionsEditor(props) {
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <button onClick={function(){ setAddPickerFor(addPickerFor === rowKey ? null : rowKey); setAddPickerSearch(''); }}
               title={isUnassigned ? 'Assign to a section' : 'Also add to another section'}
-              style={{ background: 'transparent', border: '1px solid ' + C.border, borderRadius: 5, cursor: 'pointer', padding: '1px 7px', fontSize: 12, color: C.muted, lineHeight: 1.5 }}>+</button>
+              style={{ background: 'transparent', border: '1px solid ' + C.border, borderRadius: 6, cursor: 'pointer', padding: '3px 9px', fontSize: 13, color: C.muted, lineHeight: 1.4 }}>+</button>
             {addPickerFor === rowKey && (function(){
               const opts = flatSectionOptions(currentIds).filter(function(o){
                 const q = addPickerSearch.trim().toLowerCase();
@@ -1071,21 +1072,21 @@ function DishSectionsEditor(props) {
                 <>
                   <div onClick={function(){ setAddPickerFor(null); }} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
                   <div onClick={function(e){ e.stopPropagation(); }}
-                    style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 999, background: C.surface, border: '1px solid ' + C.border, borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.18)', width: 220 }}>
+                    style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 999, background: C.surface, border: '1px solid ' + C.border, borderRadius: 9, boxShadow: '0 6px 20px rgba(0,0,0,0.18)', width: 230 }}>
                     <input autoFocus value={addPickerSearch} onChange={function(e){ setAddPickerSearch(e.target.value); }}
                       placeholder="Search sections…"
-                      style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', border: 0, borderBottom: '1px solid ' + C.borderLight, fontSize: 12, outline: 'none', borderRadius: '8px 8px 0 0' }} />
-                    <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', border: 0, borderBottom: '1px solid ' + C.borderLight, fontSize: 13, outline: 'none', borderRadius: '9px 9px 0 0' }} />
+                    <div style={{ maxHeight: 240, overflowY: 'auto' }}>
                       {opts.map(function(o){
                         return (
                           <button key={o.id} onClick={function(){ addDishToSection(dish.name, o.id); setAddPickerFor(null); }}
-                            style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 0, borderTop: '0.5px solid ' + C.borderLight, cursor: 'pointer', padding: '7px 10px', fontSize: 12, color: C.text }}>
+                            style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 0, borderTop: '0.5px solid ' + C.borderLight, cursor: 'pointer', padding: '9px 12px', fontSize: 13, color: C.text }}>
                             {o.label}
                           </button>
                         );
                       })}
                       {opts.length === 0 && (
-                        <div style={{ padding: '10px', fontSize: 11, color: C.muted, fontStyle: 'italic' }}>
+                        <div style={{ padding: '12px', fontSize: 12, color: C.muted, fontStyle: 'italic' }}>
                           {addPickerSearch.trim() ? 'No match' : 'Already in every section'}
                         </div>
                       )}
@@ -1096,29 +1097,36 @@ function DishSectionsEditor(props) {
             })()}
           </div>
         )}
-        {isAdmin && (
-          /* Same control as a section's, against dishes_master.image_url.
-             Note this one does NOT appear in the printed menu — that has no
-             per-dish photograph — it is the picture on the dish card in Menu
-             Builder. */
-          <label title={dish.image_url ? 'Replace dish photo' : 'Upload dish photo'}
-            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              width: 20, height: 20, borderRadius: 4, flexShrink: 0, overflow: 'hidden',
-              border: '1px solid ' + (dish.image_url ? 'transparent' : C.border),
-              cursor: photoBusy === dish.name ? 'wait' : 'pointer',
-              opacity: photoBusy === dish.name ? 0.5 : 1 }}>
-            <input type="file" accept="image/*" style={{ display: 'none' }} disabled={photoBusy === dish.name}
-              onChange={function(e){ uploadDishPhoto(dish.name, e.target.files && e.target.files[0]); e.target.value = ''; }} />
-            {dish.image_url
-              ? <img src={dish.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <span style={{ fontSize: 9, color: C.muted, lineHeight: 1 }}>⬒</span>}
-          </label>
-        )}
-        {isAdmin && !isUnassigned && (
-          <button onClick={function(){ removeDishFromSection(dish.name, sectionId); }} disabled={saving}
-            title={otherIds.length > 0 ? 'Remove from this section only (it stays in its other sections)' : 'Remove from this section (falls to Unassigned)'}
-            style={{ background: 'transparent', border: 0, cursor: saving ? 'wait' : 'pointer', padding: '0 2px', fontSize: 13, color: C.muted, lineHeight: 1, fontWeight: 700, flexShrink: 0 }}>×</button>
-        )}
+        {isAdmin && (function(){
+          const menuItemStyle = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', boxSizing: 'border-box', textAlign: 'left', background: 'transparent', border: 0, borderTop: '0.5px solid ' + C.borderLight, cursor: 'pointer', padding: '9px 14px', fontSize: 13, color: C.text };
+          return (
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <button onClick={function(){ setMenuFor(menuFor === dishMenuKey ? null : dishMenuKey); }} title="More actions"
+                style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '3px 8px', fontSize: 16, color: C.muted, borderRadius: 5, lineHeight: 1 }}>⋯</button>
+              {menuFor === dishMenuKey && (
+                <>
+                  <div onClick={function(){ setMenuFor(null); }} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
+                  <div onClick={function(e){ e.stopPropagation(); }}
+                    style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 999, background: C.surface, border: '1px solid ' + C.border, borderRadius: 9, boxShadow: '0 6px 20px rgba(0,0,0,0.18)', minWidth: 200, overflow: 'hidden' }}>
+                    {/* Same control as a section's, against dishes_master.image_url.
+                        Does NOT appear in the printed menu — that has no per-dish
+                        photograph — it's the picture on the dish card in Menu Builder. */}
+                    <label style={{ ...menuItemStyle, borderTop: 0, cursor: photoBusy === dish.name ? 'wait' : 'pointer' }}>
+                      <input type="file" accept="image/*" style={{ display: 'none' }} disabled={photoBusy === dish.name}
+                        onChange={function(e){ uploadDishPhoto(dish.name, e.target.files && e.target.files[0]); e.target.value = ''; setMenuFor(null); }} />
+                      📷 {dish.image_url ? 'Replace dish photo' : 'Add dish photo'}
+                    </label>
+                    {!isUnassigned && (
+                      <button onClick={function(){ setMenuFor(null); removeDishFromSection(dish.name, sectionId); }}
+                        title={otherIds.length > 0 ? 'It stays in its other sections' : 'Falls to Unassigned'}
+                        style={{ ...menuItemStyle, color: C.red }}>🗑 Remove from this section</button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
       </div>
     );
   }
@@ -1133,19 +1141,19 @@ function DishSectionsEditor(props) {
     const addingSub = addingSubFor === sec.id;
     // V73: drag ref/style applied to outer container; listeners applied to grip handle only.
     return (
-      <div ref={drag ? drag.ref : undefined} style={{ ...(drag ? drag.style : null), background: C.surface, border: '0.5px solid ' + C.border, borderRadius: 10, overflow: 'hidden', marginBottom: isSub ? 6 : 8, marginLeft: isSub ? 28 : 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px' }}>
+      <div ref={drag ? drag.ref : undefined} style={{ ...(drag ? drag.style : null), background: C.surface, border: '0.5px solid ' + C.border, borderRadius: 12, overflow: 'hidden', marginBottom: isSub ? 8 : 10, marginLeft: isSub ? 28 : 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px' }}>
           {isAdmin && drag && (
             <span {...drag.dragAttrs} {...drag.dragListeners}
               title="Drag to reorder"
-              style={{ cursor: 'grab', userSelect: 'none', padding: '2px 4px', fontSize: 13, color: C.muted, lineHeight: 1, touchAction: 'none' }}>
+              style={{ cursor: 'grab', userSelect: 'none', padding: '2px 5px', fontSize: 14, color: C.muted, lineHeight: 1, touchAction: 'none' }}>
               ⋮⋮
             </span>
           )}
-          <span style={{ cursor: 'pointer', color: C.muted, fontSize: 11, padding: '0 2px' }} onClick={function(){ toggleExpand(sec.id); }}>
+          <span style={{ cursor: 'pointer', color: C.muted, fontSize: 12, padding: '0 2px' }} onClick={function(){ toggleExpand(sec.id); }}>
             {isExpanded ? '▾' : '▸'}
           </span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 26, height: 22, padding: '0 6px', borderRadius: 6, background: C.darkCard, fontSize: 11, fontWeight: 500, color: C.muted }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 28, height: 24, padding: '0 7px', borderRadius: 6, background: C.darkCard, fontSize: 12, fontWeight: 500, color: C.muted }}>
             {printPos}
           </span>
           {isRenaming ? (
@@ -1158,32 +1166,32 @@ function DishSectionsEditor(props) {
             </>
           ) : (
             <>
-              <span style={{ fontSize: 13, fontWeight: 500, color: C.text, flex: 1, cursor: 'pointer' }} onClick={function(){ toggleExpand(sec.id); }}>{sec.name}</span>
-              {sec.sop_category_hint && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: '#E7F0F7', color: '#1E5A8F', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>SOP · {sec.sop_category_hint}</span>}
+              <span style={{ fontSize: 14, fontWeight: 500, color: C.text, flex: 1, cursor: 'pointer' }} onClick={function(){ toggleExpand(sec.id); }}>{sec.name}</span>
+              {sec.sop_category_hint && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: '#E7F0F7', color: '#1E5A8F', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>SOP · {sec.sop_category_hint}</span>}
               {isAdmin && (
                 <select value={sec.sales_dept || ''}
                   onChange={function(e){ setSalesDept(sec.id, e.target.value); }}
                   title="Which Menu Builder sidebar tab shows this section"
-                  style={{ fontSize: 10, padding: '2px 6px', border: '1px solid ' + C.border, borderRadius: 999, background: sec.sales_dept ? '#F4EEDA' : C.surface, color: sec.sales_dept ? '#7A5B12' : C.muted, cursor: 'pointer', fontWeight: sec.sales_dept ? 600 : 400 }}>
+                  style={{ fontSize: 11, padding: '3px 8px', border: '1px solid ' + C.border, borderRadius: 999, background: sec.sales_dept ? '#F4EEDA' : C.surface, color: sec.sales_dept ? '#7A5B12' : C.muted, cursor: 'pointer', fontWeight: sec.sales_dept ? 600 : 400 }}>
                   <option value="">→ Kitchen tab (default)</option>
                   {SALES_DEPTS.filter(function(d){ return ITEM_HAVING_DEPTS.indexOf(d.id) >= 0; }).map(function(d){
                     return <option key={d.id} value={d.id}>→ {d.name} tab</option>;
                   })}
                 </select>
               )}
-              <span style={{ fontSize: 11, color: C.muted }}>{dishes.length} dish{dishes.length === 1 ? '' : 'es'}</span>
+              <span style={{ fontSize: 12, color: C.muted }}>{dishes.length} dish{dishes.length === 1 ? '' : 'es'}</span>
               {isAdmin && (function(){
                 const menuKey = 'sec:' + sec.id;
-                const menuItemStyle = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', boxSizing: 'border-box', textAlign: 'left', background: 'transparent', border: 0, borderTop: '0.5px solid ' + C.borderLight, cursor: 'pointer', padding: '8px 12px', fontSize: 12, color: C.text };
+                const menuItemStyle = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', boxSizing: 'border-box', textAlign: 'left', background: 'transparent', border: 0, borderTop: '0.5px solid ' + C.borderLight, cursor: 'pointer', padding: '9px 14px', fontSize: 13, color: C.text };
                 return (
                   <div style={{ position: 'relative', flexShrink: 0 }}>
                     <button onClick={function(){ setMenuFor(menuFor === menuKey ? null : menuKey); }} title="More actions"
-                      style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '2px 8px', fontSize: 15, color: C.muted, borderRadius: 4, lineHeight: 1 }}>⋯</button>
+                      style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: '3px 9px', fontSize: 16, color: C.muted, borderRadius: 5, lineHeight: 1 }}>⋯</button>
                     {menuFor === menuKey && (
                       <>
                         <div onClick={function(){ setMenuFor(null); }} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
                         <div onClick={function(e){ e.stopPropagation(); }}
-                          style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 999, background: C.surface, border: '1px solid ' + C.border, borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.18)', minWidth: 210, overflow: 'hidden' }}>
+                          style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 999, background: C.surface, border: '1px solid ' + C.border, borderRadius: 9, boxShadow: '0 6px 20px rgba(0,0,0,0.18)', minWidth: 220, overflow: 'hidden' }}>
                           <label style={{ ...menuItemStyle, borderTop: 0, cursor: photoBusy === sec.id ? 'wait' : 'pointer' }}>
                             <input type="file" accept="image/*" style={{ display: 'none' }} disabled={photoBusy === sec.id}
                               onChange={function(e){ uploadSectionPhoto(sec, e.target.files && e.target.files[0]); e.target.value = ''; setMenuFor(null); }} />
