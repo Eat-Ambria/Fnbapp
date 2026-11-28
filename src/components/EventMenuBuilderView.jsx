@@ -1294,6 +1294,20 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
     var out = {}; // deptId -> { sectionId: { name, dishes: [] } }
     Object.keys(sectionOverrides || {}).forEach(function(dishName){
       if (!selectedDishNames.has(dishName)) return; // tagged, never actually added
+      var targetIds = normalizeOverrideIds(sectionOverrides[dishName]);
+      // A dish tagged to 2+ sections at once prints under EVERY one of them
+      // via the regular diff flow instead — see dishPrintPlacements/
+      // expandPlacements in FunctionPlanPrintView.jsx. This ad hoc "(New
+      // Section)" block below exists for the single-target case (one whole
+      // new section genuinely added for this event); running a multi-tagged
+      // dish through it too used to silently exclude it from EVERY other
+      // placement the moment any ONE target created a new-section entry
+      // (newSectionDishNames below drops a dish from the normal addedByDept
+      // pass globally, not per-section) — reported: a dish tagged to both an
+      // ad hoc section (Chaat Station) and a real package-linked one
+      // (Amritsari Cuisine, under "Indian Main Course") printed ONLY under
+      // "(New Chaat Station)", Amritsari never shown at all.
+      if (targetIds.length > 1) return;
       // A package-baseline dish (still part of the package, unchanged) used to
       // be excluded here entirely ("relocated, not added") — but a tag is now
       // purely ADDITIVE (see useMenuItemGrouping.js's groupedByPkgSection):
@@ -1304,7 +1318,7 @@ export function EventMenuBuilderView({ event, onClose, lang = "en", currentUser 
       // never counted toward addedByDept/menuDiffByDept's "+" additions
       // above (it's not a new dish — multi-value overrides never reach that
       // delta logic at all, only this ad hoc-section block).
-      normalizeOverrideIds(sectionOverrides[dishName]).forEach(function(targetId){
+      targetIds.forEach(function(targetId){
         var sec = (sections || []).find(function(s){ return s.id === targetId; });
         if (!sec) return; // not a real catalogue section id (e.g. '__extras__')
         if (pkgCatalogueSectionIds.has(targetId)) return; // part of the package (a linked section or its catalogue subtree) — not ad hoc

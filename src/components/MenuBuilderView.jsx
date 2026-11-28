@@ -1051,6 +1051,20 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
       var mine = namesOf(g.dishes);
       var count = Object.keys(mine).length;
       if (count === 0) return true;
+      // A dish additively multi-section-tagged (sectionOverrides with 2+
+      // target ids — see groupedBySection's own override merge, the fallback
+      // path active whenever the package has no sections overlay) is a
+      // DELIBERATE duplicate across groups, same reasoning as the isAdHoc
+      // exemption above. Without this, a real catalogue section containing
+      // ONLY such a dish looks "redundant" — 100% covered by whichever OTHER
+      // section's subGroup the dish is also tagged into — and silently gets
+      // dropped, even though it's one of the dish's genuine placements.
+      // Reported: "Chaat Station" vanished entirely once its one dish was
+      // ALSO tagged to "Amritsari Cuisine".
+      var hasDeliberateDuplicate = Object.keys(mine).some(function(n){
+        return normalizeOverrideIds(sectionOverrides && sectionOverrides[n]).length > 1;
+      });
+      if (hasDeliberateDuplicate) return true;
       for (var j = 0; j < all.length; j++) {
         if (j === i) continue;
         var subs = all[j].subGroups || [];
@@ -1063,7 +1077,7 @@ function ItemsTab({ T2, activeDept, setActiveDept, searchQ, setSearchQ, showAddo
       }
       return true;
     });
-  }, [groupedByCat]);
+  }, [groupedByCat, sectionOverrides]);
   useEffect(function(){
     var stillExists = dedupedGroups.some(function(g){ return g.id === activeSectionId; });
     if (!stillExists) setActiveSectionId(dedupedGroups.length > 0 ? dedupedGroups[0].id : null);
