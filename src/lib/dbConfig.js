@@ -144,6 +144,16 @@ export function buildDeptConfigs(defsRaw, optionsRaw) {
 // heading/sort) -- never a stored "primary". section_ids is the real,
 // possibly-multi-valued set, for every catalogue-browsing consumer.
 export function buildDishMasterMap(rows, linkRows) {
+  // Loud, not silent: a caller that forgets this argument gets every dish
+  // resolving to no catalogue section at all (section_id null, section_ids
+  // []) with no error anywhere -- exactly how PublicFPHub.jsx's Public FP
+  // Hub quietly drifted out of step with the authenticated in-app FP view
+  // (2026-11-28; dept routing and "Extras" placement both depend on this).
+  // An explicitly-passed [] (genuinely no memberships yet) stays silent --
+  // only `undefined` means "the caller forgot", so only that warns.
+  if (linkRows === undefined) {
+    console.error('[buildDishMasterMap] called without linkRows (dish_section_links rows) -- every dish will resolve to no section/department. Pass [] explicitly if this dataset truly has none.');
+  }
   const sectionsMap = buildDishSectionsMap(linkRows);
   const dishMaster = {};
   (rows || []).forEach(r => {
